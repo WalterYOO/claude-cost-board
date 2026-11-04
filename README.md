@@ -3,9 +3,11 @@
 一个单文件 HTML 成本看板：打开即可查询本机 Claude Code 的历史花费，时间粒度和分组维度可自由切换。
 
 ```
-python3 build.py
-open cost-board.html
+make          # 构建 cost-board.html
+make open     # 构建并打开
 ```
+
+等价于 `python3 build.py && open cost-board.html`。其他目标：`make test`、`make clean`。
 
 生成后的 `cost-board.html` 不依赖网络、CDN 或后端，可以直接双击打开。
 
