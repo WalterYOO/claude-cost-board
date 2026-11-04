@@ -1,0 +1,1236 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Code Cost Board</title>
+<style>
+:root{
+  --bg:#0b0e14; --bg2:#11151f; --bg3:#161b27; --line:#242b3a; --line2:#2e374a;
+  --fg:#e6eaf2; --muted:#8b95a8; --muted2:#5d6678;
+  --accent:#7c9cff; --accent2:#5eead4; --warn:#f5b544; --bad:#ff6b81; --good:#4ade80;
+  --bar:#7c9cff;
+  --shadow:0 10px 30px rgba(0,0,0,.35);
+  --radius:14px;
+}
+html[data-theme="light"]{
+  --bg:#f5f7fb; --bg2:#ffffff; --bg3:#eef1f7; --line:#dfe4ee; --line2:#cdd4e2;
+  --fg:#1b2230; --muted:#5d6678; --muted2:#8b95a8;
+  --accent:#3b5bdb; --accent2:#0d9488; --warn:#b45309; --bad:#dc2626; --good:#15803d;
+  --bar:#3b5bdb;
+  --shadow:0 10px 30px rgba(30,40,70,.12);
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;padding:0}
+body{
+  background:radial-gradient(1200px 600px at 20% -10%, rgba(124,156,255,.10), transparent 60%),
+             radial-gradient(900px 500px at 100% 0%, rgba(94,234,212,.07), transparent 55%),
+             var(--bg);
+  color:var(--fg);
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  min-height:100vh;
+}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+h1,h2,h3,p{margin:0}
+.num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.wrap{max-width:1680px;margin:0 auto;padding:0 18px 60px}
+.topbar{position:sticky;top:0;z-index:30;backdrop-filter:blur(14px);
+  background:color-mix(in srgb, var(--bg) 82%, transparent);border-bottom:1px solid var(--line)}
+.brandrow{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 18px 8px}
+.brand{display:flex;align-items:center;gap:12px;min-width:0}
+.logo{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));color:#08101e;font-weight:800;font-size:18px}
+h1{font-size:16px;font-weight:650;letter-spacing:.2px}
+.sub{color:var(--muted);font-size:12px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.btn{border:1px solid var(--line2);background:var(--bg2);border-radius:10px;padding:7px 11px;color:var(--fg);
+  transition:border-color .15s, background .15s, transform .05s;white-space:nowrap}
+.btn:hover{border-color:var(--accent);background:var(--bg3)}
+.btn:active{transform:translateY(1px)}
+.btn.ghost{background:transparent}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#07101f;font-weight:600}
+.btn[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#07101f;font-weight:600}
+.kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;padding:8px 18px 0}
+.kpi{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius);padding:11px 13px;min-width:0}
+.kpi .k{color:var(--muted);font-size:11px;letter-spacing:.4px;text-transform:uppercase}
+.kpi .v{font-size:21px;font-weight:650;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi .d{font-size:11px;color:var(--muted);margin-top:2px}
+.kpi .d.up{color:var(--bad)} .kpi .d.down{color:var(--good)}
+.recon{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:9px 18px 0;padding:8px 12px;
+  border:1px solid var(--line);border-radius:10px;background:var(--bg2);font-size:12px;color:var(--muted)}
+.recon b{color:var(--fg);font-weight:600}
+.recon .badge{border:1px solid var(--warn);color:var(--warn);border-radius:999px;padding:1px 8px;font-size:11px}
+.recon .badge.zero{display:none}
+.controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 18px 12px}
+.ctl{display:flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--bg2);
+  border-radius:10px;padding:4px 6px;min-height:34px}
+.ctl>label{color:var(--muted);font-size:11px;padding-left:4px;white-space:nowrap}
+.seg{display:flex;gap:2px}
+.seg .btn{border:none;background:transparent;padding:4px 8px;border-radius:7px;font-size:12px;color:var(--muted)}
+.seg .btn:hover{color:var(--fg);background:var(--bg3)}
+.seg .btn[aria-pressed="true"]{background:var(--bg3);color:var(--fg);font-weight:600;box-shadow:inset 0 0 0 1px var(--line2)}
+select,input[type="search"],input[type="date"]{background:var(--bg2);border:1px solid var(--line2);border-radius:8px;padding:5px 8px;color:var(--fg);outline:none}
+select:focus,input:focus{border-color:var(--accent)}
+input[type="search"]{min-width:180px}
+.ctl.hide{display:none}
+.multi{position:relative}
+.multi>summary{list-style:none;cursor:pointer;padding:4px 8px;border-radius:7px;font-size:12px;color:var(--muted)}
+.multi>summary::-webkit-details-marker{display:none}
+.multi[open]>summary{background:var(--bg3);color:var(--fg)}
+.multi .menu{position:absolute;z-index:50;top:calc(100% + 6px);left:0;min-width:230px;max-height:300px;overflow:auto;
+  background:var(--bg2);border:1px solid var(--line2);border-radius:12px;box-shadow:var(--shadow);padding:6px}
+.multi .menu label{display:flex;align-items:center;gap:8px;padding:5px 7px;border-radius:7px;cursor:pointer;font-size:12px}
+.multi .menu label:hover{background:var(--bg3)}
+.multi .menu .empty{color:var(--muted);padding:8px;font-size:12px}
+.multi .menu .foot{display:flex;justify-content:space-between;gap:8px;padding:6px;border-top:1px solid var(--line);margin-top:4px}
+.chip{display:inline-flex;align-items:center;gap:4px;background:var(--bg3);border:1px solid var(--line2);border-radius:999px;padding:1px 8px;font-size:11px;color:var(--muted)}
+main{padding-top:14px}
+.notice{margin:0 0 12px;padding:9px 12px;border:1px solid var(--warn);border-radius:10px;color:var(--warn);background:color-mix(in srgb,var(--warn) 8%, transparent);font-size:12px}
+.section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 10px}
+.section-head h2{font-size:14px;font-weight:600}
+.section-head .hint{color:var(--muted);font-size:12px}
+.card{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius)}
+.chart-card{padding:14px 14px 6px}
+.chart-scroll{overflow-x:auto;padding-bottom:4px}
+.chart{display:flex;align-items:flex-end;gap:6px;min-height:250px;padding:8px 2px 0;width:100%}
+.bucket{flex:1 1 0;display:flex;flex-direction:column;align-items:stretch;gap:4px;min-width:24px}
+.bar{height:210px;display:flex;flex-direction:column;justify-content:flex-end;gap:1px;border-radius:6px 6px 3px 3px;
+  background:linear-gradient(180deg,transparent, rgba(255,255,255,.025));position:relative}
+html[data-theme="light"] .bar{background:linear-gradient(180deg,transparent, rgba(30,40,70,.035))}
+.bar .piece{border-radius:2px;min-height:1px;transition:opacity .12s}
+.bar:hover .piece{opacity:.82}
+.bar .piece.other{background:var(--muted2)}
+.bar .piece.low{background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.18) 0 3px,transparent 3px 6px)}
+.xlabel{font-size:10px;color:var(--muted);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;height:26px;line-height:13px}
+.legend{display:flex;flex-wrap:wrap;gap:10px 14px;padding:10px 2px 4px;font-size:11px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:9px;height:9px;border-radius:2px;display:inline-block}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th,td{padding:7px 9px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+th{color:var(--muted);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.3px;position:sticky;top:0;background:var(--bg2)}
+td.r,th.r{text-align:right}
+tbody tr:hover{background:var(--bg3)}
+.table-wrap{overflow:auto;max-height:460px;border:1px solid var(--line);border-radius:var(--radius);background:var(--bg2);margin-top:12px}
+.board{display:flex;gap:12px;overflow-x:auto;padding:2px 2px 14px;align-items:flex-start}
+.column{flex:0 0 292px;max-width:292px;background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius);padding:10px;min-height:120px}
+.column.other{opacity:.9}
+.col-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:2px 3px 9px;border-bottom:1px solid var(--line);margin-bottom:9px}
+.col-head .name{font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.col-head .sum{font-size:12px;color:var(--muted);white-space:nowrap}
+.col-head .sub{font-size:10px;color:var(--muted2);margin-top:1px}
+.cards{display:flex;flex-direction:column;gap:8px}
+.tcard{border:1px solid var(--line);border-radius:11px;padding:9px 10px;background:var(--bg3);cursor:pointer;
+  transition:border-color .12s, transform .08s}
+.tcard:hover{border-color:var(--accent);transform:translateY(-1px)}
+.tcard .t{font-weight:550;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tcard .m{color:var(--muted);font-size:10.5px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tcard .row{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-top:6px}
+.tcard .cost{font-weight:650;font-size:14px}
+.tcard .meta{color:var(--muted);font-size:10.5px}
+.tcard .badges{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
+.badge2{font-size:9.5px;padding:1px 6px;border-radius:999px;border:1px solid var(--line2);color:var(--muted);white-space:nowrap}
+.badge2.warn{border-color:var(--warn);color:var(--warn)}
+.badge2.bad{border-color:var(--bad);color:var(--bad)}
+.badge2.good{border-color:var(--good);color:var(--good)}
+.more{color:var(--muted);font-size:11px;text-align:center;padding:6px}
+.rank-summary{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;color:var(--muted);font-size:12px}
+.dq{margin-top:18px;border:1px solid var(--line);border-radius:var(--radius);background:var(--bg2);padding:0 14px}
+.dq summary{cursor:pointer;padding:11px 0;font-size:13px;font-weight:550;color:var(--muted)}
+.dq[open] summary{color:var(--fg);border-bottom:1px solid var(--line)}
+.dq-body{padding:12px 0 16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px 22px;font-size:12px}
+.dq-item{display:flex;justify-content:space-between;gap:10px;padding:4px 0;border-bottom:1px dashed var(--line)}
+.dq-item span:first-child{color:var(--muted)}
+.dq-item span:last-child{text-align:right}
+.dq-note{grid-column:1/-1;color:var(--muted);font-size:11.5px;line-height:1.7}
+.backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:60;backdrop-filter:blur(2px)}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(560px,94vw);z-index:61;background:var(--bg2);
+  border-left:1px solid var(--line2);box-shadow:var(--shadow);overflow:auto;padding:18px 18px 40px}
+.drawer-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:14px}
+.drawer-head h2{font-size:16px;line-height:1.35}
+.drawer-head .sub{white-space:normal;line-height:1.5;margin-top:3px}
+.close-x{border:1px solid var(--line2);background:var(--bg3);border-radius:9px;width:32px;height:32px;display:grid;place-items:center;flex:none}
+.kv{display:grid;grid-template-columns:110px 1fr;gap:6px 12px;font-size:12px;margin:12px 0}
+.kv .k{color:var(--muted)}
+.kv .v{min-width:0;overflow-wrap:anywhere}
+.copy{font-size:10px;border:1px solid var(--line2);background:transparent;border-radius:6px;padding:1px 6px;color:var(--muted);margin-left:6px}
+.drawer h3{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin:18px 0 8px}
+.seg-table td,.seg-table th{font-size:11px;padding:5px 7px}
+.timeline{display:flex;align-items:flex-end;gap:2px;height:90px;padding:6px 0;border-bottom:1px solid var(--line);margin-bottom:8px}
+.timeline .tbar{flex:1;min-width:2px;background:var(--accent);border-radius:1px;min-height:1px;opacity:.8}
+.timeline .tbar.low{background:var(--warn);opacity:.55}
+.events-table{max-height:300px;overflow:auto;border:1px solid var(--line);border-radius:10px}
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:80;background:var(--fg);color:var(--bg);
+  border-radius:10px;padding:9px 14px;font-size:12px;box-shadow:var(--shadow);max-width:90vw}
+.drop-overlay{position:fixed;inset:0;z-index:90;display:grid;place-items:center;background:rgba(5,8,15,.72);
+  color:#fff;font-size:16px;border:3px dashed var(--accent);}
+.empty{padding:40px 10px;text-align:center;color:var(--muted)}
+.foot-note{color:var(--muted);font-size:11px;margin-top:12px;display:flex;gap:12px;flex-wrap:wrap}
+kbd{font-family:inherit;border:1px solid var(--line2);border-bottom-width:2px;border-radius:4px;padding:0 4px;font-size:10px}
+@media (max-width:1100px){
+  .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .kpi:last-child{grid-column:1/-1}
+}
+@media (max-width:720px){
+  .brandrow{align-items:flex-start;flex-direction:column}
+  .actions{justify-content:flex-start}
+  .column{flex-basis:84vw;max-width:84vw}
+  .controls{gap:6px}
+  input[type="search"]{min-width:120px}
+  .kv{grid-template-columns:90px 1fr}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brandrow">
+    <div class="brand">
+      <div class="logo">◧</div>
+      <div style="min-width:0">
+        <h1>Claude Cost Board</h1>
+        <div class="sub" id="asof">加载中…</div>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn ghost" id="themeBtn" title="切换主题">◐ 主题</button>
+      <button class="btn ghost" id="fileBtn">选择成本文件</button>
+      <button class="btn ghost" id="csvBtn">导出 CSV</button>
+      <input type="file" id="fileInput" accept=".jsonl,.json,.ndjson,text/plain" hidden>
+    </div>
+  </div>
+  <div class="kpis" id="kpis"></div>
+  <div class="recon" id="recon"></div>
+  <div class="controls">
+    <div class="ctl"><label>范围</label><div class="seg" id="rangeGroup"></div></div>
+    <div class="ctl" id="customRange" style="display:none"><label>起止</label>
+      <input type="date" id="fromDate"><span style="color:var(--muted)">→</span><input type="date" id="toDate">
+    </div>
+    <div class="ctl"><label>视图</label><div class="seg" id="viewGroup"></div></div>
+    <div class="ctl" id="granCtl"><label>粒度</label>
+      <select id="granSelect">
+        <option value="auto">自动</option><option value="hour">小时</option><option value="day">天</option>
+        <option value="week">周</option><option value="month">月</option><option value="quarter">季度</option><option value="year">年</option>
+      </select>
+    </div>
+    <div class="ctl" id="dimCtl"><label>列</label>
+      <select id="dimSelect">
+        <option value="project">项目</option><option value="model">模型</option>
+        <option value="session">会话排行</option><option value="time">时间桶</option>
+      </select>
+    </div>
+    <div class="ctl" id="stackCtl"><label>堆叠</label>
+      <select id="stackSelect"><option value="project">项目</option><option value="model">模型</option></select>
+    </div>
+    <div class="ctl"><label>指标</label>
+      <select id="metricSelect">
+        <option value="cost">花费</option><option value="in">输入 token</option><option value="out">输出 token</option>
+        <option value="cacheWrite">缓存写</option><option value="cacheRead">缓存读</option>
+        <option value="cacheHit">缓存命中率</option><option value="snapshots">快照数</option>
+      </select>
+    </div>
+    <details class="multi" id="projectMulti"><summary id="projectSummary">项目：全部</summary><div class="menu" id="projectMenu"></div></details>
+    <details class="multi" id="modelMulti"><summary id="modelSummary">模型：全部</summary><div class="menu" id="modelMenu"></div></details>
+    <div class="ctl"><label>时区</label>
+      <select id="tzSelect"><option value="local">本地</option><option value="utc">UTC</option></select>
+    </div>
+    <div class="ctl"><label>搜索</label><input type="search" id="searchInput" placeholder="项目 / 会话 / session id"></div>
+    <div class="ctl"><label><input type="checkbox" id="lowChk" checked style="accent-color:var(--accent)"> 含低置信度</label></div>
+  </div>
+</header>
+
+<div class="wrap">
+  <main>
+    <div class="notice" id="notice" hidden></div>
+    <section id="trendView">
+      <div class="section-head">
+        <h2 id="trendTitle">趋势</h2>
+        <div class="hint" id="trendHint"></div>
+      </div>
+      <div class="card chart-card">
+        <div class="chart-scroll"><div class="chart" id="chart"></div></div>
+        <div class="legend" id="legend"></div>
+      </div>
+      <div class="table-wrap" id="trendTable"></div>
+    </section>
+
+    <section id="boardView" hidden>
+      <div class="section-head">
+        <h2 id="boardTitle">看板</h2>
+        <div class="hint" id="boardHint"></div>
+      </div>
+      <div class="board" id="board"></div>
+    </section>
+
+    <section id="rankingView" hidden>
+      <div class="section-head">
+        <h2>会话排行</h2>
+        <div class="hint">按当前指标排序，点击行查看详情</div>
+      </div>
+      <div class="rank-summary" id="rankSummary"></div>
+      <div class="table-wrap" id="rankingTable"></div>
+    </section>
+
+    <details class="dq" id="dq"><summary>数据质量与口径</summary><div class="dq-body" id="dqBody"></div></details>
+
+    <div class="foot-note">
+      <span>快捷键：<kbd>/</kbd> 搜索 · <kbd>g</kbd> 切换粒度 · <kbd>Esc</kbd> 关闭详情</span>
+      <span>所有金额均为 ECC 估算，不是账单。</span>
+    </div>
+  </main>
+</div>
+
+<div class="backdrop" id="backdrop" hidden></div>
+<aside class="drawer" id="drawer" hidden></aside>
+<div class="toast" id="toast" hidden></div>
+<div class="drop-overlay" id="dropOverlay" hidden>松开以载入完整的 costs.jsonl</div>
+
+<script id="cost-data" type="application/json">__COST_DATA_JSON__</script>
+<script>
+(function(){
+"use strict";
+
+const RAW = JSON.parse(document.getElementById("cost-data").textContent);
+let DATA = RAW;
+const $ = (sel, root) => (root || document).querySelector(sel);
+const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
+
+const THEME_KEY = "cost-board-theme";
+const DEFAULT_STATE = {
+  acc: "segments", view: "trend", range: "30d", gran: "auto",
+  dim: "project", stack: "project", metric: "cost", q: "",
+  projects: [], models: [], low: true, from: "", to: "", tz: "local"
+};
+const state = Object.assign({}, DEFAULT_STATE);
+let SESSION = new Map();
+let PROJECTS = [];
+let MODELS = [];
+let syncingHash = false;
+
+/* ---------- formatting ---------- */
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const pad = (n) => String(n).padStart(2, "0");
+const fmtUSD = (v, digits) => {
+  const n = Number(v) || 0;
+  const d = digits == null ? (Math.abs(n) < 0.01 ? 4 : 2) : digits;
+  return "≈ $" + n.toLocaleString("en-US", {minimumFractionDigits: d, maximumFractionDigits: d});
+};
+const fmtTokens = (v) => {
+  const n = Number(v) || 0;
+  if (Math.abs(n) >= 1e9) return (n/1e9).toFixed(2) + "B";
+  if (Math.abs(n) >= 1e6) return (n/1e6).toFixed(2) + "M";
+  if (Math.abs(n) >= 1e3) return (n/1e3).toFixed(1) + "k";
+  return String(Math.round(n));
+};
+const pct = (v) => (Number(v) * 100).toFixed(1) + "%";
+
+/* ---------- time helpers (local or UTC) ---------- */
+function utc(){ return state.tz === "utc"; }
+function parts(d){
+  if (utc()) return {y:d.getUTCFullYear(), m:d.getUTCMonth(), day:d.getUTCDate(), h:d.getUTCHours(), w:d.getUTCDay()};
+  return {y:d.getFullYear(), m:d.getMonth(), day:d.getDate(), h:d.getHours(), w:d.getDay()};
+}
+function mk(y, m, day, h){
+  return utc() ? new Date(Date.UTC(y, m, day, h || 0)) : new Date(y, m, day, h || 0);
+}
+function ymd(d){ const p = parts(d); return p.y + "-" + pad(p.m + 1) + "-" + pad(p.day); }
+function md(d){ const p = parts(d); return pad(p.m + 1) + "-" + pad(p.day); }
+function startOfDay(d){ const p = parts(d); return mk(p.y, p.m, p.day, 0); }
+function endOfDay(d){ return new Date(startOfDay(d).getTime() + 86400000 - 1); }
+function addDays(d, n){
+  const x = new Date(d);
+  if (utc()) x.setUTCDate(x.getUTCDate() + n); else x.setDate(x.getDate() + n);
+  return x;
+}
+function addMonths(d, n){
+  const x = new Date(d);
+  if (utc()) x.setUTCMonth(x.getUTCMonth() + n); else x.setMonth(x.getMonth() + n);
+  return x;
+}
+function startOfWeek(d){
+  const base = startOfDay(d);
+  const dow = (parts(base).w + 6) % 7;
+  return addDays(base, -dow);
+}
+function bucketOf(ts, gran){
+  const d = new Date(ts);
+  const p = parts(d);
+  if (gran === "hour"){
+    const s = mk(p.y, p.m, p.day, p.h);
+    return {key: "H" + s.getTime(), label: md(s) + " " + pad(p.h) + ":00", start: s};
+  }
+  if (gran === "day"){
+    const s = mk(p.y, p.m, p.day);
+    return {key: "D" + s.getTime(), label: md(s), start: s};
+  }
+  if (gran === "week"){
+    const s = startOfWeek(d);
+    return {key: "W" + s.getTime(), label: "周 " + md(s), start: s};
+  }
+  if (gran === "month"){
+    const s = mk(p.y, p.m, 1);
+    return {key: "M" + s.getTime(), label: p.y + "-" + pad(p.m + 1), start: s};
+  }
+  if (gran === "quarter"){
+    const qm = Math.floor(p.m / 3) * 3;
+    const s = mk(p.y, qm, 1);
+    return {key: "Q" + s.getTime(), label: p.y + " Q" + (qm / 3 + 1), start: s};
+  }
+  const s = mk(p.y, 0, 1);
+  return {key: "Y" + s.getTime(), label: String(p.y), start: s};
+}
+function nextBucket(d, gran){
+  if (gran === "hour") return new Date(d.getTime() + 3600000);
+  if (gran === "day") return addDays(d, 1);
+  if (gran === "week") return addDays(d, 7);
+  if (gran === "month") return addMonths(d, 1);
+  if (gran === "quarter") return addMonths(d, 3);
+  return addMonths(d, 12);
+}
+function bucketStart(date, gran){
+  if (gran === "hour"){ const p = parts(date); return mk(p.y, p.m, p.day, p.h); }
+  if (gran === "day") return startOfDay(date);
+  if (gran === "week") return startOfWeek(date);
+  if (gran === "month"){ const p = parts(date); return mk(p.y, p.m, 1); }
+  if (gran === "quarter"){ const p = parts(date); return mk(p.y, Math.floor(p.m / 3) * 3, 1); }
+  const p = parts(date); return mk(p.y, 0, 1);
+}
+function autoGran(from, to){
+  const days = (to - from) / 86400000;
+  if (days <= 2) return "hour";
+  if (days <= 45) return "day";
+  if (days <= 400) return "week";
+  if (days <= 2000) return "month";
+  return "year";
+}
+const GRAN_ORDER = ["hour", "day", "week", "month", "quarter", "year"];
+
+/* ---------- state / hash ---------- */
+function loadState(){
+  const p = new URLSearchParams(location.hash.replace(/^#/, ""));
+  const get = (k, d) => p.has(k) ? p.get(k) : d;
+  state.acc = get("acc", DEFAULT_STATE.acc) === "latest" ? "latest" : "segments";
+  state.view = get("view", DEFAULT_STATE.view) === "board" ? "board" : "trend";
+  state.range = ["7d","30d","90d","all","custom"].includes(get("range","")) ? get("range") : DEFAULT_STATE.range;
+  state.gran = ["auto","hour","day","week","month","quarter","year"].includes(get("gran","")) ? get("gran") : "auto";
+  state.dim = ["project","model","session","time"].includes(get("dim","")) ? get("dim") : "project";
+  state.stack = get("stack", "project") === "model" ? "model" : "project";
+  state.metric = ["cost","in","out","cacheWrite","cacheRead","cacheHit","snapshots"].includes(get("metric","")) ? get("metric") : "cost";
+  state.q = get("q", "");
+  state.projects = p.getAll("proj").filter(Boolean);
+  state.models = p.getAll("model").filter(Boolean);
+  state.low = get("low", "1") !== "0";
+  state.from = get("from", "");
+  state.to = get("to", "");
+  state.tz = get("tz", "local") === "utc" ? "utc" : "local";
+}
+function saveState(){
+  if (syncingHash) return;
+  const p = new URLSearchParams();
+  p.set("acc", state.acc); p.set("view", state.view); p.set("range", state.range);
+  p.set("gran", state.gran); p.set("dim", state.dim); p.set("stack", state.stack);
+  p.set("metric", state.metric);
+  if (state.q) p.set("q", state.q);
+  state.projects.forEach(x => p.append("proj", x));
+  state.models.forEach(x => p.append("model", x));
+  if (!state.low) p.set("low", "0");
+  if (state.from) p.set("from", state.from);
+  if (state.to) p.set("to", state.to);
+  if (state.tz !== "local") p.set("tz", state.tz);
+  const next = "#" + p.toString();
+  if (location.hash !== next){
+    syncingHash = true;
+    history.replaceState(null, "", next);
+    syncingHash = false;
+  }
+}
+
+/* ---------- data indices ---------- */
+function reindex(){
+  SESSION = new Map(DATA.sessions.map(s => [s.id, s]));
+  PROJECTS = Array.from(new Set(DATA.sessions.map(s => s.project))).sort((a,b)=>a.localeCompare(b,"zh-CN"));
+  MODELS = Array.from(new Set(DATA.events.map(e => e.modelDisplay))).sort();
+}
+const priceClass = (m) => {
+  if (/fable|mythos/.test(m)) return "fable";
+  if (/haiku/.test(m)) return "haiku";
+  if (/(^|[^a-z0-9])sonnet-5([^a-z0-9]|$)/.test(m)) return "sonnet5";
+  if (/3-opus|opus-4-0(?!\d)|opus-4-1(?!\d)|opus-4[-@]\d{8}/.test(m)) return "opus-legacy";
+  if (/opus/.test(m)) return "opus";
+  if (/sonnet/.test(m)) return "sonnet";
+  return "fallback-sonnet";
+};
+
+/* ---------- filters ---------- */
+function rangeBounds(){
+  const now = new Date();
+  const cov = DATA.meta.coverage || {};
+  const last = cov.lastTs ? new Date(cov.lastTs) : now;
+  if (state.range === "all"){
+    return [cov.firstTs ? startOfDay(new Date(cov.firstTs)) : startOfDay(last), endOfDay(last)];
+  }
+  if (state.range === "custom"){
+    const f = state.from ? startOfDay(parseDateInput(state.from)) : startOfDay(addDays(now, -29));
+    const t = state.to ? endOfDay(parseDateInput(state.to)) : endOfDay(now);
+    return [f, t];
+  }
+  const days = state.range === "7d" ? 7 : state.range === "90d" ? 90 : 30;
+  return [startOfDay(addDays(now, -(days - 1))), endOfDay(now)];
+}
+function parseDateInput(s){
+  const p = String(s).split("-").map(Number);
+  return mk(p[0], (p[1] || 1) - 1, p[2] || 1, 0);
+}
+function dateInputValue(d){ return ymd(d); }
+function inTime(e, from, to){
+  const t = new Date(e.ts).getTime();
+  return t >= from.getTime() && t <= to.getTime();
+}
+function filterEvents(from, to){
+  const projSet = new Set(state.projects);
+  const modelSet = new Set(state.models);
+  const q = state.q.trim().toLowerCase();
+  return DATA.events.filter(e => {
+    if (!inTime(e, from, to)) return false;
+    if (!state.low && e.tsConfidence === "low") return false;
+    const s = SESSION.get(e.session);
+    if (state.acc === "latest" && (!s || e.segment !== s.lastSegment)) return false;
+    if (projSet.size && (!s || !projSet.has(s.project))) return false;
+    if (modelSet.size && !modelSet.has(e.modelDisplay)) return false;
+    if (q){
+      const hay = ((s && s.title) || "") + " " + ((s && s.project) || "") + " " + e.session + " " + e.modelDisplay;
+      if (!hay.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
+}
+function currentEvents(){
+  const [from, to] = rangeBounds();
+  return filterEvents(from, to);
+}
+function previousEvents(){
+  const [from, to] = rangeBounds();
+  const span = to - from;
+  return filterEvents(new Date(from.getTime() - span), new Date(from.getTime() - 1));
+}
+function agg(list){
+  const a = {cost:0, in:0, out:0, cacheWrite:0, cacheRead:0, snapshots:0, sessions:new Set(), low:0};
+  for (const e of list){
+    a.cost += e.cost; a.in += e.in; a.out += e.out;
+    a.cacheWrite += e.cacheWrite; a.cacheRead += e.cacheRead;
+    a.snapshots += 1; a.sessions.add(e.session);
+    if (e.tsConfidence === "low") a.low += 1;
+  }
+  a.cacheHit = a.cacheRead / ((a.in + a.cacheWrite + a.cacheRead) || 1);
+  return a;
+}
+const METRICS = {
+  cost: {label:"花费", value:a=>a.cost, fmt:v=>fmtUSD(v)},
+  in: {label:"输入 token", value:a=>a.in, fmt:fmtTokens},
+  out: {label:"输出 token", value:a=>a.out, fmt:fmtTokens},
+  cacheWrite: {label:"缓存写 token", value:a=>a.cacheWrite, fmt:fmtTokens},
+  cacheRead: {label:"缓存读 token", value:a=>a.cacheRead, fmt:fmtTokens},
+  cacheHit: {label:"缓存命中率", value:a=>a.cacheHit, fmt:v=>pct(v)},
+  snapshots: {label:"快照数", value:a=>a.snapshots, fmt:v=>String(Math.round(v))}
+};
+function metricOf(a){ return (METRICS[state.metric] || METRICS.cost).value(a); }
+function eventMetric(e){
+  if (state.metric === "cacheHit") return e.cacheRead / ((e.in + e.cacheWrite + e.cacheRead) || 1);
+  if (state.metric === "snapshots") return 1;
+  return e[state.metric] || 0;
+}
+
+/* ---------- KPI / recon ---------- */
+function renderKpis(){
+  const events = currentEvents();
+  const a = agg(events);
+  const prev = agg(previousEvents());
+  const cur = metricOf(a), old = metricOf(prev);
+  const diff = cur - old;
+  let deltaTxt = "—", deltaCls = "";
+  if (state.metric === "cacheHit"){
+    if (prev.snapshots){
+      deltaTxt = (diff >= 0 ? "+" : "") + (diff * 100).toFixed(1) + " pt";
+      deltaCls = diff >= 0 ? "down" : "up";
+    }
+  } else if (old > 0){
+    deltaTxt = (diff >= 0 ? "+" : "") + (diff / old * 100).toFixed(1) + "%";
+    deltaCls = diff >= 0 ? "up" : "down";
+  }
+  const allTotal = state.acc === "segments" ? DATA.meta.reconciliation.segmentTotal : DATA.meta.reconciliation.latestTotal;
+  const cards = [
+    {k:"当前筛选 · " + METRICS[state.metric].label, v:METRICS[state.metric].fmt(cur), d:"上一等长周期 " + deltaTxt, cls:deltaCls},
+    {k:"会话", v:String(a.sessions.size), d:a.sessions.size ? "平均 " + fmtUSD(a.cost / a.sessions.size, 2) + "/会话" : "无数据"},
+    {k:"快照（Stop）", v:String(a.snapshots), d:"低置信度 " + a.low},
+    {k:"缓存命中率", v:pct(a.cacheHit), d:"cacheRead / (in+cw+cr)"},
+    {k:"全部时间（该口径）", v:fmtUSD(allTotal, 2), d:state.acc === "segments" ? "所有历史段" : "每会话最新快照"}
+  ];
+  $("#kpis").innerHTML = cards.map(c =>
+    '<div class="kpi"><div class="k">' + esc(c.k) + '</div><div class="v num">' + esc(c.v) +
+    '</div><div class="d ' + c.cls + '">' + esc(c.d) + '</div></div>').join("");
+}
+function renderRecon(){
+  const r = DATA.meta.reconciliation;
+  const c = DATA.meta.counts;
+  const diff = Math.abs(r.diff) < 0.0005 ? 0 : r.diff;
+  const el = $("#recon");
+  el.innerHTML =
+    '<span>口径 <b>' + (state.acc === "segments" ? "实际消耗（segments）" : "最新快照（ECC）") + '</b></span>' +
+    '<span>段累计 <b class="num">' + fmtUSD(r.segmentTotal, 2) + '</b></span>' +
+    '<span>最新快照 <b class="num">' + fmtUSD(r.latestTotal, 2) + '</b></span>' +
+    '<span class="badge ' + (diff ? "" : "zero") + '">差额 ' + fmtUSD(diff, 2) + ' · ' + c.resets + ' 个会话重置</span>' +
+    '<button class="btn ghost" id="accToggle" style="margin-left:auto">切换口径</button>';
+  const btn = $("#accToggle");
+  if (btn) btn.addEventListener("click", () => {
+    state.acc = state.acc === "segments" ? "latest" : "segments";
+    syncControls(); saveState(); renderAll();
+  });
+}
+
+/* ---------- controls ---------- */
+const RANGE_LABELS = {"7d":"7 天","30d":"30 天","90d":"90 天","all":"全部","custom":"自定义"};
+const VIEW_LABELS = {trend:"趋势", board:"看板"};
+function renderControlMenus(){
+  $("#rangeGroup").innerHTML = Object.keys(RANGE_LABELS).map(k =>
+    '<button class="btn" data-range="' + k + '">' + RANGE_LABELS[k] + '</button>').join("");
+  $("#viewGroup").innerHTML = Object.keys(VIEW_LABELS).map(k =>
+    '<button class="btn" data-view="' + k + '">' + VIEW_LABELS[k] + '</button>').join("");
+  renderProjectMenu();
+  renderModelMenu();
+}
+function renderProjectMenu(){
+  const menu = $("#projectMenu");
+  if (!PROJECTS.length){ menu.innerHTML = '<div class="empty">无项目</div>'; return; }
+  menu.innerHTML = PROJECTS.map(p =>
+    '<label><input type="checkbox" data-proj="' + esc(p) + '"' + (state.projects.includes(p) ? " checked" : "") + '> <span>' + esc(p) + '</span></label>'
+  ).join("") + '<div class="foot"><button class="btn ghost" data-clear="proj">清空</button><button class="btn ghost" data-all="proj">全选</button></div>';
+  $("#projectSummary").textContent = state.projects.length ? ("项目：" + state.projects.length + " 个") : "项目：全部";
+}
+function renderModelMenu(){
+  const menu = $("#modelMenu");
+  if (!MODELS.length){ menu.innerHTML = '<div class="empty">无模型</div>'; return; }
+  menu.innerHTML = MODELS.map(m =>
+    '<label><input type="checkbox" data-model="' + esc(m) + '"' + (state.models.includes(m) ? " checked" : "") + '> <span>' + esc(m) + '</span></label>'
+  ).join("") + '<div class="foot"><button class="btn ghost" data-clear="model">清空</button><button class="btn ghost" data-all="model">全选</button></div>';
+  $("#modelSummary").textContent = state.models.length ? ("模型：" + state.models.length + " 个") : "模型：全部";
+}
+function syncControls(){
+  $$("#rangeGroup [data-range]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.range === state.range)));
+  $$("#viewGroup [data-view]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.view === state.view)));
+  $("#granSelect").value = state.gran;
+  $("#dimSelect").value = state.dim;
+  $("#stackSelect").value = state.stack;
+  $("#metricSelect").value = state.metric;
+  $("#tzSelect").value = state.tz;
+  $("#searchInput").value = state.q;
+  $("#lowChk").checked = state.low;
+  $("#customRange").style.display = state.range === "custom" ? "" : "none";
+  $("#fromDate").value = state.from || dateInputValue(addDays(new Date(), -29));
+  $("#toDate").value = state.to || dateInputValue(new Date());
+  $("#granCtl").classList.toggle("hide", state.view !== "trend");
+  $("#stackCtl").classList.toggle("hide", state.view !== "trend");
+  $("#dimCtl").classList.toggle("hide", state.view !== "board");
+  $("#projectSummary").textContent = state.projects.length ? ("项目：" + state.projects.length + " 个") : "项目：全部";
+  $("#modelSummary").textContent = state.models.length ? ("模型：" + state.models.length + " 个") : "模型：全部";
+}
+
+/* ---------- trend ---------- */
+function pickGranularity(from, to){
+  let gran = state.gran === "auto" ? autoGran(from, to) : state.gran;
+  const count = (g) => {
+    let n = 0, cur = bucketStart(from, g), end = bucketStart(to, g);
+    while (cur <= end && n < 5000){ n++; cur = nextBucket(cur, g); }
+    return n;
+  };
+  const MAX = state.gran === "auto" ? 60 : 180;
+  while (count(gran) > MAX && gran !== "year"){
+    gran = GRAN_ORDER[Math.min(GRAN_ORDER.indexOf(gran) + 1, GRAN_ORDER.length - 1)];
+  }
+  return gran;
+}
+const COLORS = ["#7c9cff","#5eead4","#f5b544","#ff6b81","#a78bfa","#4ade80","#38bdf8","#fb923c","#f472b6","#94a3b8"];
+function groupKey(e){
+  if (state.stack === "model") return e.modelDisplay;
+  const s = SESSION.get(e.session);
+  return (s && s.project) || "未知项目";
+}
+function renderTrend(){
+  const events = currentEvents();
+  const [from, to] = rangeBounds();
+  const gran = pickGranularity(from, to);
+  const bucketList = [];
+  let cur = bucketStart(from, gran);
+  const end = bucketStart(to, gran);
+  let guard = 0;
+  while (cur <= end && guard++ < 5000){
+    const b = bucketOf(cur.toISOString(), gran);
+    bucketList.push(b);
+    cur = nextBucket(cur, gran);
+  }
+  const map = new Map(bucketList.map(b => [b.key, {bucket:b, events:[], groups:new Map(), total:0}]));
+  for (const e of events){
+    const b = bucketOf(e.ts, gran);
+    const row = map.get(b.key);
+    if (!row) continue;
+    row.events.push(e);
+    const g = groupKey(e);
+    row.groups.set(g, (row.groups.get(g) || 0) + eventMetric(e));
+    row.total += eventMetric(e);
+  }
+  const rows = bucketList.map(b => map.get(b.key));
+  const totals = new Map();
+  rows.forEach(r => r.groups.forEach((v,k)=>totals.set(k,(totals.get(k)||0)+v)));
+  const ranked = Array.from(totals.entries()).sort((a,b)=>b[1]-a[1]);
+  const top = ranked.slice(0, 8).map(x=>x[0]);
+  const hasOther = ranked.length > top.length;
+  const max = Math.max(1e-9, ...rows.map(r=>r.total));
+
+  $("#trendTitle").textContent = "趋势 · " + METRICS[state.metric].label;
+  $("#trendHint").textContent = (state.range === "custom" ? "自定义范围" : RANGE_LABELS[state.range]) +
+    " · " + gran + " 粒度 · 按" + (state.stack === "project" ? "项目" : "模型") + "堆叠" +
+    (state.gran !== "auto" && state.gran !== gran ? "（已自动降级）" : "");
+  if (state.gran !== "auto" && state.gran !== gran){
+    showNotice("请求的 " + state.gran + " 粒度过细，已自动降级为 " + gran + "，避免生成过多列。");
+  } else hideNotice();
+
+  $("#chart").innerHTML = rows.map(r => {
+    const pieces = [];
+    if (state.metric === "cacheHit"){
+      const h = Math.max(0, Math.min(1, r.total)) * 100;
+      pieces.push('<div class="piece" style="height:' + h + '%;background:var(--accent)"></div>');
+    } else {
+      top.forEach((g, i) => {
+        const v = r.groups.get(g) || 0;
+        if (v <= 0) return;
+        pieces.push('<div class="piece' + (r.events.some(e=>e.tsConfidence==="low") ? " low" : "") + '" style="height:' + (v/max*100) + '%;background:' + COLORS[i%COLORS.length] + '"></div>');
+      });
+      if (hasOther){
+        let v = 0; r.groups.forEach((val,k)=>{ if(!top.includes(k)) v+=val; });
+        if (v > 0) pieces.push('<div class="piece other" style="height:' + (v/max*100) + '%"></div>');
+      }
+    }
+    const tip = r.bucket.label + "\n" + METRICS[state.metric].label + "：" + METRICS[state.metric].fmt(r.total) +
+      "\n快照：" + r.events.length + " · 会话：" + new Set(r.events.map(e=>e.session)).size;
+    return '<div class="bucket"><div class="bar" title="' + esc(tip) + '">' + pieces.join("") +
+      '</div><div class="xlabel" title="' + esc(r.bucket.label) + '">' + esc(r.bucket.label) + '</div></div>';
+  }).join("");
+
+  const legend = [];
+  if (state.metric !== "cacheHit"){
+    top.forEach((g,i)=>legend.push('<span><i style="background:'+COLORS[i%COLORS.length]+'"></i>' + esc(g) + '</span>'));
+    if (hasOther) legend.push('<span><i style="background:var(--muted2)"></i>其他</span>');
+    legend.push('<span><i style="background:repeating-linear-gradient(45deg,var(--warn) 0 3px,transparent 3px 6px)"></i>含低置信度快照</span>');
+  } else {
+    legend.push('<span><i style="background:var(--accent)"></i>缓存命中率</span>');
+  }
+  $("#legend").innerHTML = legend.join("");
+
+  const totalAgg = agg(events);
+  const showCostCol = state.metric !== "cost";
+  const costHead = showCostCol ? '<th class="r">花费</th>' : "";
+  const head = '<tr><th>桶</th><th class="r">' + esc(METRICS[state.metric].label) + '</th>' + costHead + '<th class="r">快照</th><th class="r">会话</th><th class="r">缓存命中</th></tr>';
+  const body = rows.map(r => {
+    const a = agg(r.events);
+    const costCell = showCostCol ? '<td class="r num">' + fmtUSD(a.cost) + '</td>' : "";
+    return '<tr><td>' + esc(r.bucket.label) + '</td><td class="r num">' + esc(METRICS[state.metric].fmt(r.total)) +
+      '</td>' + costCell + '<td class="r num">' + a.snapshots +
+      '</td><td class="r num">' + a.sessions.size + '</td><td class="r num">' + pct(a.cacheHit) + '</td></tr>';
+  }).join("");
+  const costFoot = showCostCol ? '<td class="r num"><b>' + fmtUSD(totalAgg.cost) + '</b></td>' : "";
+  const foot = '<tr><td><b>合计</b></td><td class="r num"><b>' + esc(METRICS[state.metric].fmt(metricOf(totalAgg))) +
+    '</b></td>' + costFoot + '<td class="r num"><b>' + totalAgg.snapshots +
+    '</b></td><td class="r num"><b>' + totalAgg.sessions.size + '</b></td><td class="r num"><b>' + pct(totalAgg.cacheHit) + '</b></td></tr>';
+  $("#trendTable").innerHTML = "<table><thead>" + head + "</thead><tbody>" + (body || '<tr><td colspan="' + (showCostCol ? 6 : 5) + '" class="empty">无数据</td></tr>') + foot + "</tbody></table>";
+}
+
+/* ---------- board ---------- */
+function renderBoard(){
+  const events = currentEvents();
+  if (state.dim === "session"){ renderRanking(events); return; }
+  showBoard();
+  let gran = null;
+  if (state.dim === "time"){
+    const [from,to] = rangeBounds();
+    gran = state.gran === "auto" ? autoGran(from,to) : state.gran;
+    const count = (g) => { let n=0,c=bucketStart(from,g),e=bucketStart(to,g); while(c<=e&&n<5000){n++;c=nextBucket(c,g);} return n; };
+    while (count(gran) > 24 && gran !== "year") gran = GRAN_ORDER[Math.min(GRAN_ORDER.indexOf(gran)+1, GRAN_ORDER.length-1)];
+  }
+  const columns = new Map();
+  const ensure = (key, label) => {
+    if (!columns.has(key)) columns.set(key, {key, label, events:[]});
+    return columns.get(key);
+  };
+  if (state.dim === "time"){
+    const [from,to] = rangeBounds();
+    let cur = bucketStart(from, gran); const end = bucketStart(to, gran); let guard=0;
+    while (cur <= end && guard++ < 5000){ const b=bucketOf(cur.toISOString(),gran); ensure(b.key,b.label); cur=nextBucket(cur,gran); }
+    for (const e of events){ const b=bucketOf(e.ts,gran); ensure(b.key,b.label).events.push(e); }
+  } else {
+    const groups = new Map();
+    for (const e of events){
+      const s = SESSION.get(e.session);
+      const key = state.dim === "model" ? e.modelDisplay : ((s && s.project) || "未知项目");
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(e);
+    }
+    const ranked = Array.from(groups.entries()).sort((a,b)=>metricOf(agg(b[1]))-metricOf(agg(a[1])));
+    const top = ranked.slice(0, 12);
+    const rest = ranked.slice(12);
+    top.forEach(([k,v])=>ensure("g:"+k,k).events.push(...v));
+    if (rest.length){ const col = ensure("g:__other__","其他 ("+rest.length+")"); rest.forEach(([,v])=>col.events.push(...v)); }
+  }
+
+  const cols = Array.from(columns.values());
+  cols.forEach(col => {
+    col.agg = agg(col.events);
+    const bySession = new Map();
+    for (const e of col.events){
+      if (!bySession.has(e.session)) bySession.set(e.session, []);
+      bySession.get(e.session).push(e);
+    }
+    col.cards = Array.from(bySession.entries()).map(([sid, evs]) => ({sid, a:agg(evs)}))
+      .sort((a,b)=>metricOf(b.a)-metricOf(a.a));
+  });
+  if (state.dim !== "time") cols.sort((a,b)=>metricOf(b.agg)-metricOf(a.agg));
+  const total = agg(events);
+  $("#boardTitle").textContent = "看板 · " + (state.dim === "time" ? "时间桶" : state.dim === "model" ? "模型" : "项目");
+  $("#boardHint").textContent = cols.length + " 列 · " + total.sessions.size + " 个会话 · " + METRICS[state.metric].label + " " + METRICS[state.metric].fmt(metricOf(total));
+  $("#board").innerHTML = cols.map(col => {
+    const cards = col.cards.slice(0, 60).map(c => cardHtml(c)).join("");
+    const more = col.cards.length > 60 ? '<div class="more">还有 ' + (col.cards.length-60) + ' 个会话</div>' : "";
+    return '<div class="column' + (col.key === "g:__other__" ? " other" : "") + '">' +
+      '<div class="col-head"><div style="min-width:0"><div class="name" title="' + esc(col.label) + '">' + esc(col.label) + '</div>' +
+      '<div class="sub">' + col.agg.sessions.size + ' 会话 · ' + col.agg.snapshots + ' 快照</div></div>' +
+      '<div class="sum num">' + esc(METRICS[state.metric].fmt(metricOf(col.agg))) + '</div></div>' +
+      '<div class="cards">' + (cards || '<div class="more">无数据</div>') + more + '</div></div>';
+  }).join("") || '<div class="empty">当前筛选没有数据</div>';
+}
+function cardHtml(c){
+  const s = SESSION.get(c.sid) || {id:c.sid, title:c.sid.slice(0,8), project:"未知", modelsDisplay:[], projectInferred:true, segments:[]};
+  const badges = [];
+  if (c.a.low) badges.push('<span class="badge2 warn">低置信度 ' + c.a.low + '</span>');
+  if (s.projectInferred) badges.push('<span class="badge2">项目名推断</span>');
+  if ((s.modelsDisplay||[]).some(m => priceClass(m) === "fallback-sonnet")) badges.push('<span class="badge2 warn">价格按 Sonnet 估</span>');
+  if ((s.segments||[]).length > 1) badges.push('<span class="badge2 bad">重置 ' + (s.segments.length-1) + '</span>');
+  return '<div class="tcard" data-session="' + esc(c.sid) + '" tabindex="0" role="button">' +
+    '<div class="t">' + esc(s.title || c.sid.slice(0,8)) + '</div>' +
+    '<div class="m" title="' + esc((s.modelsDisplay||[]).join(", ")) + '">' + esc((s.modelsDisplay||[]).join(", ") || "unknown") + '</div>' +
+    '<div class="row"><span class="cost num">' + esc(METRICS[state.metric].fmt(metricOf(c.a))) + '</span>' +
+    '<span class="meta">' + c.a.snapshots + ' 快照 · 缓存 ' + pct(c.a.cacheHit) + '</span></div>' +
+    (badges.length ? '<div class="badges">' + badges.join("") + '</div>' : "") +
+    '</div>';
+}
+
+/* ---------- ranking ---------- */
+function renderRanking(events){
+  showRanking();
+  const bySession = new Map();
+  for (const e of events){
+    if (!bySession.has(e.session)) bySession.set(e.session, []);
+    bySession.get(e.session).push(e);
+  }
+  const rows = Array.from(bySession.entries()).map(([sid, evs]) => {
+    const s = SESSION.get(sid) || {id:sid, title:sid.slice(0,8), project:"未知", modelsDisplay:[], segments:[]};
+    return {sid, s, a:agg(evs)};
+  }).sort((x,y)=>metricOf(y.a)-metricOf(x.a));
+  const total = agg(events);
+  $("#rankSummary").innerHTML =
+    '<span>会话 <b>' + rows.length + '</b></span><span>花费 <b>' + fmtUSD(total.cost,2) + '</b></span>' +
+    '<span>快照 <b>' + total.snapshots + '</b></span><span>缓存命中 <b>' + pct(total.cacheHit) + '</b></span>' +
+    '<span class="chip">点击行查看详情</span>';
+  const showCostCol = state.metric !== "cost";
+  $("#rankingTable").innerHTML = '<table><thead><tr><th>#</th><th>会话</th><th>项目</th><th>模型</th><th class="r">' +
+    esc(METRICS[state.metric].label) + '</th>' + (showCostCol ? '<th class="r">花费</th>' : '') + '<th class="r">快照</th><th class="r">缓存</th><th>最近</th></tr></thead><tbody>' +
+    (rows.length ? rows.map((r,i) => '<tr data-session="' + esc(r.sid) + '" style="cursor:pointer">' +
+      '<td class="num">' + (i+1) + '</td><td style="max-width:320px;overflow:hidden;text-overflow:ellipsis" title="' + esc(r.s.title) + '">' + esc(r.s.title) + '</td>' +
+      '<td>' + esc(r.s.project) + (r.s.projectInferred ? ' <span class="badge2">推断</span>' : '') + '</td>' +
+      '<td>' + esc((r.s.modelsDisplay||[]).join(", ")) + '</td>' +
+      '<td class="r num">' + esc(METRICS[state.metric].fmt(metricOf(r.a))) + '</td>' +
+      (showCostCol ? '<td class="r num">' + fmtUSD(r.a.cost) + '</td>' : '') + '<td class="r num">' + r.a.snapshots + '</td>' +
+      '<td class="r num">' + pct(r.a.cacheHit) + '</td><td>' + esc((r.s.lastTs||"").slice(0,16).replace("T"," ")) + '</td></tr>').join("")
+      : '<tr><td colspan="' + (showCostCol ? 9 : 8) + '" class="empty">无数据</td></tr>') + '</tbody></table>';
+}
+
+/* ---------- drawer ---------- */
+function openDrawer(sid){
+  const s = SESSION.get(sid) || {id:sid, title:sid.slice(0,8), project:"未知", projectPath:"", modelsDisplay:[], segments:[], transcriptPath:"", transcriptExists:false};
+  const evs = DATA.events.filter(e => e.session === sid);
+  const a = agg(evs);
+  const segRows = (s.segments||[]).map(seg => '<tr><td class="num">' + seg.id + '</td><td>' + esc(seg.kind) + '</td><td>' + esc(fmtLocal(seg.startTs)) +
+    '</td><td>' + esc(fmtLocal(seg.endTs)) + '</td><td class="r num">' + fmtUSD(seg.total) + '</td></tr>').join("");
+  const maxEv = Math.max(1e-9, ...evs.map(e=>e.cost));
+  const timeline = evs.map(e => '<div class="tbar' + (e.tsConfidence==="low"?" low":"") + '" title="' + esc(fmtLocal(e.ts) + " · " + fmtUSD(e.cost,4) + " · " + e.kind) + '" style="height:' + Math.max(2, e.cost/maxEv*100) + '%"></div>').join("");
+  const eventRows = evs.slice().reverse().slice(0,300).map(e => '<tr><td>' + esc(fmtLocal(e.ts)) + '</td><td>' + esc(e.kind) +
+    '</td><td>' + esc(e.modelDisplay) + '</td><td class="r num">' + fmtTokens(e.in) + '</td><td class="r num">' + fmtTokens(e.out) +
+    '</td><td class="r num">' + fmtTokens(e.cacheRead) + '</td><td class="r num">' + fmtUSD(e.cost,4) + '</td></tr>').join("");
+  const dq = [];
+  if (s.projectInferred) dq.push("项目名由 transcript 目录推断");
+  if (s.transcriptExists === false) dq.push("transcript 已缺失");
+  if ((s.segments||[]).length > 1) dq.push("会话存在累计重置");
+  const fallback = (s.modelsDisplay||[]).filter(m=>priceClass(m)==="fallback-sonnet");
+  if (fallback.length) dq.push("价格可能按 Sonnet 估算：" + fallback.join(", "));
+  $("#drawer").innerHTML =
+    '<div class="drawer-head"><div style="min-width:0"><h2>' + esc(s.title) + '</h2>' +
+    '<div class="sub">' + esc(s.project) + (s.projectPath ? ' · ' + esc(s.projectPath) : '') + '</div></div>' +
+    '<button class="close-x" id="closeDrawer" aria-label="关闭">✕</button></div>' +
+    '<div class="kv">' +
+      '<div class="k">Session</div><div class="v mono">' + esc(s.id) + '<button class="copy" data-copy="' + esc(s.id) + '">复制</button></div>' +
+      '<div class="k">时间</div><div class="v">' + esc(fmtLocal(s.firstTs)) + ' → ' + esc(fmtLocal(s.lastTs)) + '</div>' +
+      '<div class="k">模型</div><div class="v">' + esc((s.modelsDisplay||[]).join(", ") || "—") + '</div>' +
+      '<div class="k">花费</div><div class="v num">' + fmtUSD(a.cost, 4) + ' <span style="color:var(--muted)">（' + a.snapshots + ' 快照）</span></div>' +
+      '<div class="k">Token</div><div class="v num">入 ' + fmtTokens(a.in) + ' · 出 ' + fmtTokens(a.out) + ' · 缓存写 ' + fmtTokens(a.cacheWrite) + ' · 缓存读 ' + fmtTokens(a.cacheRead) + '</div>' +
+      '<div class="k">缓存命中</div><div class="v num">' + pct(a.cacheHit) + '</div>' +
+      '<div class="k">Transcript</div><div class="v mono" style="font-size:11px">' + esc(s.transcriptPath || "—") + (s.transcriptPath ? '<button class="copy" data-copy="' + esc(s.transcriptPath) + '">复制</button>' : '') + '</div>' +
+    '</div>' +
+    (dq.length ? '<div class="notice" style="margin:10px 0">' + esc(dq.join("；")) + '</div>' : '') +
+    '<h3>每轮花费</h3><div class="timeline">' + timeline + '</div>' +
+    '<h3>Segment</h3><div class="table-wrap" style="max-height:180px"><table class="seg-table"><thead><tr><th>#</th><th>类型</th><th>开始</th><th>结束</th><th class="r">累计</th></tr></thead><tbody>' + (segRows || '<tr><td colspan="5" class="empty">—</td></tr>') + '</tbody></table></div>' +
+    '<h3>快照明细（最近 300）</h3><div class="events-table"><table><thead><tr><th>时间</th><th>类型</th><th>模型</th><th class="r">入</th><th class="r">出</th><th class="r">缓存读</th><th class="r">花费</th></tr></thead><tbody>' + (eventRows || '<tr><td colspan="7" class="empty">—</td></tr>') + '</tbody></table></div>';
+  $("#drawer").hidden = false;
+  $("#backdrop").hidden = false;
+  $("#closeDrawer").addEventListener("click", closeDrawer);
+  $$("#drawer [data-copy]").forEach(b => b.addEventListener("click", () => copyText(b.dataset.copy)));
+}
+function closeDrawer(){
+  $("#drawer").hidden = true;
+  $("#backdrop").hidden = true;
+  $("#drawer").innerHTML = "";
+}
+function copyText(text){
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(()=>toast("已复制"), ()=>toast("复制失败"));
+  } else {
+    const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta);
+    ta.select(); try { document.execCommand("copy"); toast("已复制"); } catch(e){ toast("复制失败"); }
+    ta.remove();
+  }
+}
+function fmtLocal(ts){
+  if (!ts) return "";
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return ts;
+  const p = parts(d);
+  const mins = utc() ? d.getUTCMinutes() : d.getMinutes();
+  const secs = utc() ? d.getUTCSeconds() : d.getSeconds();
+  return p.y + "-" + pad(p.m+1) + "-" + pad(p.day) + " " + pad(p.h) + ":" + pad(mins) + ":" + pad(secs);
+}
+
+/* ---------- data quality ---------- */
+function renderDq(){
+  const m = DATA.meta, c = m.counts, r = m.reconciliation;
+  const fallback = MODELS.filter(x => priceClass(x) === "fallback-sonnet");
+  const item = (k,v) => '<div class="dq-item"><span>' + esc(k) + '</span><span class="num">' + esc(v) + '</span></div>';
+  $("#dqBody").innerHTML =
+    item("数据源", m.source.path || "—") +
+    item("文件修改时间", m.source.mtime ? fmtLocal(m.source.mtime) : "—") +
+    item("生成时间", fmtLocal(m.generatedAt)) +
+    item("覆盖范围", (m.coverage.firstTs ? fmtLocal(m.coverage.firstTs) + " → " + fmtLocal(m.coverage.lastTs) : "—")) +
+    item("文件指纹", (m.source.fingerprint || "—").slice(0, 22) + (m.source.fingerprint && m.source.fingerprint.length>22 ? "…" : "")) +
+    item("总行数 / 有效", c.totalLines + " / " + c.validRows) +
+    item("跳过 / 补零", c.skippedRows + " / " + c.coercedRows) +
+    item("重复行 / 异常", c.duplicateRows + " / " + c.anomalies) +
+    item("会话 / Segment", c.sessions + " / " + c.segments) +
+    item("累计重置", c.resets) +
+    item("跨模型事件", c.crossModelDeltas) +
+    item("推断项目名", c.inferredProjects) +
+    item("缺失 transcript", c.missingTranscripts) +
+    item("低置信度事件", r.lowConfidenceEvents) +
+    item("首行 baseline", fmtUSD(r.baselineTotal, 2) + "（" + pct(r.baselineShare) + "）") +
+    item("段累计 / 最新快照", fmtUSD(r.segmentTotal, 2) + " / " + fmtUSD(r.latestTotal, 2)) +
+    item("差额", fmtUSD(r.diff, 2)) +
+    '<div class="dq-note">' +
+      '<b>口径：</b>segments = 所有 segment 的 baseline + 正向增量；latest = 每会话最后一个 segment 的累计（与 ECC 报告一致）。<br>' +
+      '<b>低置信度：</b>首行/重置 baseline，以及间隔超过 12 小时的增量，时间归因不可靠。<br>' +
+      '<b>价格：</b>' + (fallback.length ? '以下模型 ECC 会回落到 Sonnet 价目表：' + esc(fallback.join(", ")) : '未发现未知价格模型') + '。所有金额为估算，不是账单。<br>' +
+      '<b>覆盖：</b>“全部”只表示当前文件的范围，不代表 Claude Code 的完整历史。<br>' +
+      '<b>隐私：</b>生成后的 HTML 含本机路径和会话标题，分享前请自行检查。' +
+    '</div>';
+}
+
+/* ---------- orchestration ---------- */
+function showNotice(text){ const n=$("#notice"); n.textContent=text; n.hidden=false; }
+function hideNotice(){ $("#notice").hidden = true; }
+function showBoard(){ $("#trendView").hidden = true; $("#rankingView").hidden = true; $("#boardView").hidden = false; }
+function showRanking(){ $("#trendView").hidden = true; $("#boardView").hidden = true; $("#rankingView").hidden = false; }
+function showTrend(){ $("#boardView").hidden = true; $("#rankingView").hidden = true; $("#trendView").hidden = false; }
+function renderAll(){
+  $("#asof").textContent = "数据截至 " + fmtLocal(DATA.meta.coverage.lastTs) + " · 生成 " + fmtLocal(DATA.meta.generatedAt) +
+    " · " + (state.tz === "utc" ? "UTC" : "本地时区") + " · " + DATA.meta.counts.sessions + " 会话";
+  renderKpis();
+  renderRecon();
+  syncControls();
+  if (state.view === "trend"){ showTrend(); renderTrend(); }
+  else {
+    if (state.dim === "session") renderRanking(currentEvents());
+    else { showBoard(); renderBoard(); }
+  }
+  renderDq();
+}
+function toast(text){
+  const t = $("#toast"); t.textContent = text; t.hidden = false;
+  clearTimeout(toast._t); toast._t = setTimeout(()=>{ t.hidden = true; }, 2200);
+}
+
+/* ---------- import (full replace only) ---------- */
+function parseJsonl(text){
+  const rows = []; let skipped = 0; let line = 0;
+  for (const raw of text.split(/\r?\n/)){
+    line++;
+    const s = raw.trim();
+    if (!s) continue;
+    let d;
+    try { d = JSON.parse(s); } catch(e){ skipped++; continue; }
+    if (!d || typeof d !== "object"){ skipped++; continue; }
+    const ts = d.timestamp, sid = d.session_id;
+    if (typeof ts !== "string" || !ts || typeof sid !== "string" || !sid){ skipped++; continue; }
+    const vals = {}; let bad = false;
+    for (const k of ["input_tokens","output_tokens","cache_write_tokens","cache_read_tokens","estimated_cost_usd"]){
+      const v = d[k] == null ? 0 : Number(d[k]);
+      if (!isFinite(v) || v < 0){ bad = true; break; }
+      vals[k] = v;
+    }
+    if (bad){ skipped++; continue; }
+    rows.push({ts, session_id:sid, transcript_path:d.transcript_path || "", model:d.model || "unknown", line,
+      input_tokens:Math.round(vals.input_tokens), output_tokens:Math.round(vals.output_tokens),
+      cache_write_tokens:Math.round(vals.cache_write_tokens), cache_read_tokens:Math.round(vals.cache_read_tokens),
+      estimated_cost_usd:vals.estimated_cost_usd});
+  }
+  return {rows, skipped};
+}
+function displayModelJS(raw){ return String(raw || "unknown").split("/").pop().trim().toLowerCase() || "unknown"; }
+function deriveData(rows, skipped, sourceName, text){
+  const metaMap = new Map(DATA.sessions.map(s => [s.id, {cwd:s.projectPath, title:s.title}]));
+  const known = new Map();
+  metaMap.forEach(v => { if (v.cwd) known.set(v.cwd.replace(/[^A-Za-z0-9]/g,"-"), v.cwd); });
+  const bySession = new Map();
+  for (const r of rows){ if (!bySession.has(r.session_id)) bySession.set(r.session_id, []); bySession.get(r.session_id).push(r); }
+  const sessions = [], events = [];
+  let seq = 0, latestTotal = 0, baselineTotal = 0;
+  const counts = {rows:rows.length, validRows:rows.length, skippedRows:skipped, coercedRows:0, duplicateRows:0,
+    anomalies:0, resets:0, crossModelDeltas:0, inferredProjects:0, missingTranscripts:0, sessions:0, segments:0, totalLines:rows.length+skipped};
+  for (const sid of Array.from(bySession.keys()).sort()){
+    const srows = bySession.get(sid).slice().sort((a,b)=> (Date.parse(a.ts)-Date.parse(b.ts)) || (a.line-b.line));
+    const segments = [], sevents = [];
+    let prev = null, segId = -1, lastRow = null;
+    for (const r of srows){
+      if (prev && prev.ts===r.ts && prev.model===r.model && ["input_tokens","output_tokens","cache_write_tokens","cache_read_tokens","estimated_cost_usd"].every(k=>prev[k]===r[k])){
+        counts.duplicateRows++; lastRow = r; continue;
+      }
+      const gap = prev ? Math.max(0, (Date.parse(r.ts)-Date.parse(prev.ts))/3600000) : 0;
+      let kind, vals, cost;
+      if (!prev){
+        segId = 0; kind = "first-baseline";
+        vals = {in:r.input_tokens, out:r.output_tokens, cacheWrite:r.cache_write_tokens, cacheRead:r.cache_read_tokens};
+        cost = r.estimated_cost_usd;
+        segments.push({id:segId, startTs:r.ts, endTs:r.ts, kind:"first", total:0});
+      } else {
+        const td = {in:r.input_tokens-prev.input_tokens, out:r.output_tokens-prev.output_tokens,
+          cacheWrite:r.cache_write_tokens-prev.cache_write_tokens, cacheRead:r.cache_read_tokens-prev.cache_read_tokens};
+        const cd = r.estimated_cost_usd - prev.estimated_cost_usd;
+        if (Object.values(td).some(v=>v<0)){
+          segId++; kind = "reset-baseline";
+          vals = {in:r.input_tokens, out:r.output_tokens, cacheWrite:r.cache_write_tokens, cacheRead:r.cache_read_tokens};
+          cost = r.estimated_cost_usd;
+          segments.push({id:segId, startTs:r.ts, endTs:r.ts, kind:"reset", total:0});
+          counts.resets++;
+        } else {
+          vals = td;
+          if (cd < 0){ kind="anomaly"; cost=0; counts.anomalies++; }
+          else { kind="delta"; cost=cd; if (r.ts===prev.ts) counts.anomalies++; }
+        }
+      }
+      if (prev && prev.model !== r.model) counts.crossModelDeltas++;
+      const tsConf = (kind.endsWith("baseline") || gap > 12) ? "low" : "high";
+      if (kind.endsWith("baseline")) baselineTotal += cost;
+      const ev = {seq:seq++, ts:r.ts, session:sid, segment:segId, kind, tsConfidence:tsConf,
+        gapHours:Math.round(gap*1000)/1000, modelFrom:prev?prev.model:null, modelTo:r.model, modelRaw:r.model,
+        modelDisplay:displayModelJS(r.model), priceClass:priceClass(displayModelJS(r.model)),
+        in:vals.in, out:vals.out, cacheWrite:vals.cacheWrite, cacheRead:vals.cacheRead, cost};
+      events.push(ev); sevents.push(ev);
+      segments[segments.length-1].endTs = r.ts;
+      segments[segments.length-1].total += cost;
+      prev = r; lastRow = r;
+    }
+    if (!sevents.length) continue;
+    const mm = metaMap.get(sid) || {};
+    let project = "", projectPath = "", inferred = false;
+    if (mm.cwd){ projectPath = mm.cwd; project = mm.cwd.split("/").filter(Boolean).pop() || mm.cwd; }
+    else {
+      const tp = srows[0].transcript_path || "";
+      const folder = tp ? tp.split("/").slice(-2,-1)[0] || "" : "";
+      if (folder && known.has(folder)){ projectPath = known.get(folder); project = projectPath.split("/").filter(Boolean).pop() || projectPath; }
+      else {
+        inferred = true;
+        const cleaned = folder.replace(/^-+/,"").replace(/-/g,"/");
+        const parts = cleaned.split("/").filter(Boolean);
+        project = parts.slice(-2).join(" / ") || "未知项目";
+      }
+    }
+    if (inferred) counts.inferredProjects++;
+    if (!srows[0].transcript_path) counts.missingTranscripts++;
+    const latest = lastRow ? lastRow.estimated_cost_usd : 0;
+    latestTotal += latest;
+    sessions.push({id:sid, project:project || "未知项目", projectPath, projectInferred:inferred,
+      title:(mm.title || sid.slice(0,8)), modelsRaw:Array.from(new Set(sevents.map(e=>e.modelRaw))).sort(),
+      modelsDisplay:Array.from(new Set(sevents.map(e=>e.modelDisplay))).sort(),
+      firstTs:srows[0].ts, lastTs:srows[srows.length-1].ts, latestTotal:latest,
+      segmentTotal:sevents.reduce((s,e)=>s+e.cost,0), lastSegment:segments[segments.length-1].id,
+      transcriptPath:srows[0].transcript_path || "", transcriptExists:null, segments, eventCount:sevents.length});
+    counts.segments += segments.length;
+  }
+  events.sort((a,b)=> (Date.parse(a.ts)-Date.parse(b.ts)) || (a.seq-b.seq));
+  counts.sessions = sessions.length;
+  const segmentTotal = events.reduce((s,e)=>s+e.cost,0);
+  let h = 2166136261;
+  for (let i=0;i<text.length;i++){ h ^= text.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return {meta:{generatedAt:new Date().toISOString(), tz:"local",
+    source:{path:sourceName, mtime:new Date().toISOString(), fingerprint:"fnv1a:" + (h>>>0).toString(16)},
+    coverage: events.length ? {firstTs:events[0].ts, lastTs:events[events.length-1].ts} : {},
+    counts, reconciliation:{latestTotal, segmentTotal, diff:segmentTotal-latestTotal, baselineTotal,
+      baselineShare: segmentTotal ? baselineTotal/segmentTotal : 0,
+      lowConfidenceEvents: events.filter(e=>e.tsConfidence==="low").length}},
+    sessions, events};
+}
+async function handleFile(file){
+  if (!file) return;
+  const text = await file.text();
+  const parsed = parseJsonl(text);
+  if (!parsed.rows.length){ toast("文件里没有有效行"); return; }
+  const next = deriveData(parsed.rows, parsed.skipped, file.name, text);
+  if (next.sessions.length < DATA.sessions.length * 0.8){
+    const ok = confirm("新文件的会话数（" + next.sessions.length + "）明显少于当前数据（" + DATA.sessions.length +
+      "）。这可能是子集文件，载入后历史会消失。仍要继续吗？");
+    if (!ok) return;
+  }
+  DATA = next; reindex(); renderControlMenus(); syncControls(); renderAll();
+  toast("已载入 " + file.name + " · " + next.sessions.length + " 会话");
+}
+
+/* ---------- CSV ---------- */
+function exportCsv(){
+  const events = currentEvents();
+  const lines = ["timestamp,session_id,project,title,model,kind,confidence,input_tokens,output_tokens,cache_write_tokens,cache_read_tokens,estimated_cost_usd"];
+  for (const e of events){
+    const s = SESSION.get(e.session) || {};
+    lines.push([e.ts, e.session, s.project || "", s.title || "", e.modelDisplay, e.kind, e.tsConfidence,
+      e.in, e.out, e.cacheWrite, e.cacheRead, e.cost].map(v => {
+        const x = String(v == null ? "" : v);
+        return /[",\n]/.test(x) ? '"' + x.replace(/"/g,'""') + '"' : x;
+      }).join(","));
+  }
+  const blob = new Blob(["﻿" + lines.join("\n")], {type:"text/csv;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "cost-events-" + ymd(new Date()) + ".csv";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+  toast("已导出 " + events.length + " 条");
+}
+
+/* ---------- theme ---------- */
+function applyTheme(pref){
+  const resolved = pref === "auto" ? (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark") : pref;
+  document.documentElement.dataset.theme = resolved;
+  $("#themeBtn").textContent = pref === "auto" ? "◐ 自动" : pref === "light" ? "☀ 浅色" : "☾ 深色";
+}
+function initTheme(){
+  let pref = localStorage.getItem(THEME_KEY) || "auto";
+  applyTheme(pref);
+  matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => { if ((localStorage.getItem(THEME_KEY)||"auto")==="auto") applyTheme("auto"); });
+  $("#themeBtn").addEventListener("click", () => {
+    const cur = localStorage.getItem(THEME_KEY) || "auto";
+    const next = cur === "auto" ? "light" : cur === "light" ? "dark" : "auto";
+    localStorage.setItem(THEME_KEY, next); applyTheme(next);
+  });
+}
+
+/* ---------- events ---------- */
+function wire(){
+  $("#rangeGroup").addEventListener("click", e => {
+    const b = e.target.closest("[data-range]"); if (!b) return;
+    state.range = b.dataset.range; saveState(); renderAll();
+  });
+  $("#viewGroup").addEventListener("click", e => {
+    const b = e.target.closest("[data-view]"); if (!b) return;
+    state.view = b.dataset.view; saveState(); renderAll();
+  });
+  $("#granSelect").addEventListener("change", e => { state.gran = e.target.value; saveState(); renderAll(); });
+  $("#dimSelect").addEventListener("change", e => { state.dim = e.target.value; saveState(); renderAll(); });
+  $("#stackSelect").addEventListener("change", e => { state.stack = e.target.value; saveState(); renderAll(); });
+  $("#metricSelect").addEventListener("change", e => { state.metric = e.target.value; saveState(); renderAll(); });
+  $("#tzSelect").addEventListener("change", e => { state.tz = e.target.value; saveState(); renderAll(); });
+  $("#lowChk").addEventListener("change", e => { state.low = e.target.checked; saveState(); renderAll(); });
+  let qTimer = null;
+  $("#searchInput").addEventListener("input", e => {
+    const v = e.target.value; clearTimeout(qTimer);
+    qTimer = setTimeout(()=>{ state.q = v; saveState(); renderAll(); }, 120);
+  });
+  $("#fromDate").addEventListener("change", e => { state.from = e.target.value; saveState(); renderAll(); });
+  $("#toDate").addEventListener("change", e => { state.to = e.target.value; saveState(); renderAll(); });
+
+  document.addEventListener("change", e => {
+    if (e.target.matches("[data-proj]")){
+      const v = e.target.dataset.proj;
+      state.projects = e.target.checked ? Array.from(new Set(state.projects.concat(v))) : state.projects.filter(x=>x!==v);
+      saveState(); renderAll(); renderProjectMenu();
+    }
+    if (e.target.matches("[data-model]")){
+      const v = e.target.dataset.model;
+      state.models = e.target.checked ? Array.from(new Set(state.models.concat(v))) : state.models.filter(x=>x!==v);
+      saveState(); renderAll(); renderModelMenu();
+    }
+  });
+  document.addEventListener("click", e => {
+    const clear = e.target.closest("[data-clear]");
+    if (clear){ if (clear.dataset.clear === "proj") state.projects = []; else state.models = []; saveState(); renderAll(); renderProjectMenu(); renderModelMenu(); return; }
+    const all = e.target.closest("[data-all]");
+    if (all){ if (all.dataset.all === "proj") state.projects = PROJECTS.slice(); else state.models = MODELS.slice(); saveState(); renderAll(); renderProjectMenu(); renderModelMenu(); return; }
+    const card = e.target.closest("[data-session]");
+    if (card){ openDrawer(card.dataset.session); return; }
+    if (e.target.id === "backdrop") closeDrawer();
+  });
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape"){ closeDrawer(); return; }
+    if (e.target.matches("input,select,textarea")) return;
+    if (e.key === "/"){ e.preventDefault(); $("#searchInput").focus(); }
+    if (e.key === "g"){
+      const order = ["auto","hour","day","week","month","quarter","year"];
+      state.gran = order[(order.indexOf(state.gran)+1) % order.length];
+      syncControls(); saveState(); renderAll();
+    }
+  });
+  window.addEventListener("hashchange", () => {
+    if (syncingHash) return;
+    loadState(); syncControls(); renderAll();
+  });
+  $("#fileBtn").addEventListener("click", ()=>$("#fileInput").click());
+  $("#fileInput").addEventListener("change", e => { handleFile(e.target.files[0]); e.target.value = ""; });
+  $("#csvBtn").addEventListener("click", exportCsv);
+  let dragDepth = 0;
+  window.addEventListener("dragenter", e => { e.preventDefault(); dragDepth++; $("#dropOverlay").hidden = false; });
+  window.addEventListener("dragover", e => e.preventDefault());
+  window.addEventListener("dragleave", e => { e.preventDefault(); dragDepth = Math.max(0, dragDepth-1); if (!dragDepth) $("#dropOverlay").hidden = true; });
+  window.addEventListener("drop", e => {
+    e.preventDefault(); dragDepth = 0; $("#dropOverlay").hidden = true;
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) handleFile(f);
+  });
+}
+
+/* ---------- boot ---------- */
+function boot(){
+  loadState();
+  initTheme();
+  reindex();
+  renderControlMenus();
+  wire();
+  syncControls();
+  renderAll();
+}
+boot();
+})();
+</script>
+</body>
+</html>
