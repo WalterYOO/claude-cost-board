@@ -29,6 +29,8 @@ DEFAULT_COSTS = HOME / ".claude" / "metrics" / "costs.jsonl"
 DEFAULT_PROJECTS = HOME / ".claude" / "projects"
 ROOT = Path(__file__).resolve().parent
 DATA_PLACEHOLDER = "__COST_DATA_JSON__"
+PRICING_PLACEHOLDER = "__PRICING_JS__"
+DEFAULT_PRICING = ROOT / "pricing.js"
 
 
 def now_iso():
@@ -437,13 +439,19 @@ def build(rows, meta, source_path=None, source_mtime=None, generated_at=None):
     }
 
 
-def render(template_text, data):
+def render(template_text, data, pricing_source):
+    if template_text.count(DATA_PLACEHOLDER) != 1:
+        raise SystemExit("template must contain exactly one %s" % DATA_PLACEHOLDER)
+    if template_text.count(PRICING_PLACEHOLDER) != 1:
+        raise SystemExit("template must contain exactly one %s" % PRICING_PLACEHOLDER)
+    if "</script" in pricing_source.lower():
+        raise SystemExit("pricing source must not contain </script")
     payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
     # Prevent a session title containing </script> from terminating the block.
     payload = payload.replace("</", "<\\/")
-    if DATA_PLACEHOLDER not in template_text:
-        raise SystemExit("template is missing %s" % DATA_PLACEHOLDER)
-    return template_text.replace(DATA_PLACEHOLDER, payload)
+    return template_text.replace(PRICING_PLACEHOLDER, pricing_source).replace(
+        DATA_PLACEHOLDER, payload
+    )
 
 
 def main(argv=None):
@@ -451,6 +459,7 @@ def main(argv=None):
     parser.add_argument("--costs", default=str(DEFAULT_COSTS), help="path to costs.jsonl")
     parser.add_argument("--projects", default=str(DEFAULT_PROJECTS), help="path to ~/.claude/projects")
     parser.add_argument("--template", default=str(ROOT / "template.html"), help="HTML template")
+    parser.add_argument("--pricing", default=str(DEFAULT_PRICING), help="pricing module")
     parser.add_argument("--out", default=str(ROOT / "cost-board.html"), help="output HTML")
     parser.add_argument("--data-out", default=str(ROOT / "data.snapshot.json"), help="optional JSON snapshot")
     parser.add_argument("--no-transcripts", action="store_true", help="skip reading transcript metadata")
@@ -481,7 +490,8 @@ def main(argv=None):
     })
 
     template_text = Path(args.template).read_text(encoding="utf-8")
-    html = render(template_text, data)
+    pricing_source = Path(args.pricing).read_text(encoding="utf-8")
+    html = render(template_text, data, pricing_source)
     Path(args.out).write_text(html, encoding="utf-8")
     if args.data_out:
         Path(args.data_out).write_text(

@@ -59,6 +59,19 @@ h1{font-size:16px;font-weight:650;letter-spacing:.2px}
 .kpi .v{font-size:21px;font-weight:650;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .kpi .d{font-size:11px;color:var(--muted);margin-top:2px}
 .kpi .d.up{color:var(--bad)} .kpi .d.down{color:var(--good)}
+.pricing{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:9px 18px 0;padding:8px 10px;
+  border:1px solid var(--line);border-radius:10px;background:var(--bg2);font-size:12px;color:var(--muted)}
+.pricing>.plabel{font-size:11px;color:var(--muted);padding:0 2px}
+.pricebtn{display:flex;flex-direction:column;align-items:flex-start;gap:1px;min-width:104px;
+  padding:4px 10px;border:1px solid var(--line2);border-radius:9px;background:var(--bg3);color:var(--muted);cursor:pointer}
+.pricebtn:hover{border-color:var(--accent)}
+.pricebtn[aria-pressed="true"]{border-color:var(--accent);color:var(--fg);background:color-mix(in srgb,var(--accent) 10%,var(--bg3));box-shadow:inset 0 0 0 1px var(--accent)}
+.pricebtn .pn{font-weight:650;font-size:11px;color:var(--fg)}
+.pricebtn .pv{font-size:12px;color:var(--fg)}
+.pricebtn .pc{font-size:9.5px;color:var(--muted2)}
+.pricing .pmeta{flex:1 1 300px;font-size:11px;line-height:1.45;color:var(--muted);min-width:220px}
+.pricing .pmeta b{color:var(--fg);font-weight:600}
+.pricing select{padding:3px 6px;font-size:11px}
 .recon{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:9px 18px 0;padding:8px 12px;
   border:1px solid var(--line);border-radius:10px;background:var(--bg2);font-size:12px;color:var(--muted)}
 .recon b{color:var(--fg);font-weight:600}
@@ -202,6 +215,7 @@ kbd{font-family:inherit;border:1px solid var(--line2);border-bottom-width:2px;bo
     </div>
   </div>
   <div class="kpis" id="kpis"></div>
+  <div class="pricing" id="pricing"></div>
   <div class="recon" id="recon"></div>
   <div class="controls">
     <div class="ctl"><label>范围</label><div class="seg" id="rangeGroup"></div></div>
@@ -277,7 +291,7 @@ kbd{font-family:inherit;border:1px solid var(--line2);border-bottom-width:2px;bo
 
     <div class="foot-note">
       <span>快捷键：<kbd>/</kbd> 搜索 · <kbd>g</kbd> 切换粒度 · <kbd>Esc</kbd> 关闭详情</span>
-      <span>所有金额均为 ECC 估算，不是账单。</span>
+      <span>所有金额均为所选价目表的估算，不是账单。</span>
     </div>
   </main>
 </div>
@@ -287,12 +301,15 @@ kbd{font-family:inherit;border:1px solid var(--line2);border-bottom-width:2px;bo
 <div class="toast" id="toast" hidden></div>
 <div class="drop-overlay" id="dropOverlay" hidden>松开以载入完整的 costs.jsonl</div>
 
+<script>__PRICING_JS__</script>
 <script id="cost-data" type="application/json">__COST_DATA_JSON__</script>
 <script>
 (function(){
 "use strict";
 
 const RAW = JSON.parse(document.getElementById("cost-data").textContent);
+const PRICING = window.CostPricing;
+if (!PRICING) throw new Error("pricing module missing");
 let DATA = RAW;
 const $ = (sel, root) => (root || document).querySelector(sel);
 const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
@@ -301,13 +318,16 @@ const THEME_KEY = "cost-board-theme";
 const DEFAULT_STATE = {
   acc: "segments", view: "trend", range: "30d", gran: "auto",
   dim: "project", stack: "project", metric: "cost", q: "",
-  projects: [], models: [], low: true, from: "", to: "", tz: "local"
+  projects: [], models: [], low: true, from: "", to: "", tz: "local",
+  book: "ecc", ds: "auto"
 };
 const state = Object.assign({}, DEFAULT_STATE);
 let SESSION = new Map();
 let PROJECTS = [];
 let MODELS = [];
 let syncingHash = false;
+let PRICE_MEMO = new WeakMap();
+let OPEN_SESSION = null;
 
 /* ---------- formatting ---------- */
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -425,6 +445,8 @@ function loadState(){
   state.from = get("from", "");
   state.to = get("to", "");
   state.tz = get("tz", "local") === "utc" ? "utc" : "local";
+  state.book = PRICING.BOOK_IDS.includes(get("book", "")) ? get("book", "") : "ecc";
+  state.ds = PRICING.DS_MODES.includes(get("ds", "")) ? get("ds", "") : "auto";
 }
 function saveState(){
   if (syncingHash) return;
@@ -439,6 +461,8 @@ function saveState(){
   if (state.from) p.set("from", state.from);
   if (state.to) p.set("to", state.to);
   if (state.tz !== "local") p.set("tz", state.tz);
+  if (state.book !== "ecc") p.set("book", state.book);
+  if (state.ds !== "auto") p.set("ds", state.ds);
   const next = "#" + p.toString();
   if (location.hash !== next){
     syncingHash = true;
@@ -452,6 +476,54 @@ function reindex(){
   SESSION = new Map(DATA.sessions.map(s => [s.id, s]));
   PROJECTS = Array.from(new Set(DATA.sessions.map(s => s.project))).sort((a,b)=>a.localeCompare(b,"zh-CN"));
   MODELS = Array.from(new Set(DATA.events.map(e => e.modelDisplay))).sort();
+}
+function scope(book, dsMode){
+  return {book: book || state.book, dsMode: dsMode || state.ds};
+}
+function priced(e, s){
+  const sc = s || scope();
+  let memo = PRICE_MEMO.get(e);
+  if (!memo){ memo = new Map(); PRICE_MEMO.set(e, memo); }
+  const key = sc.book + "|" + sc.dsMode;
+  if (!memo.has(key)) memo.set(key, PRICING.priceEvent(e, sc.book, sc.dsMode));
+  return memo.get(key);
+}
+function eventCost(e, s){ return priced(e, s).cost; }
+function resetPriceMemo(){ PRICE_MEMO = new WeakMap(); }
+function priceTotals(events){
+  const out = {};
+  for (const book of PRICING.BOOK_IDS) out[book] = agg(events, scope(book, state.ds)).cost;
+  return out;
+}
+function reconciliation(s){
+  const sc = s || scope();
+  if (sc.book === "ecc"){
+    const r = DATA.meta.reconciliation;
+    return {book:"ecc", segmentTotal:r.segmentTotal, latestTotal:r.latestTotal, diff:r.diff,
+      baselineTotal:r.baselineTotal, baselineShare:r.baselineShare,
+      lowConfidenceEvents:r.lowConfidenceEvents, latestLabel:"最新快照"};
+  }
+  let segmentTotal = 0, latestTotal = 0, baselineTotal = 0, lowConfidenceEvents = 0;
+  for (const e of DATA.events){
+    const c = eventCost(e, sc);
+    segmentTotal += c;
+    if (String(e.kind || "").endsWith("baseline")) baselineTotal += c;
+    if (e.tsConfidence === "low") lowConfidenceEvents += 1;
+    const sess = SESSION.get(e.session);
+    if (sess && e.segment === sess.lastSegment) latestTotal += c;
+  }
+  return {book:sc.book, segmentTotal, latestTotal, diff:segmentTotal - latestTotal,
+    baselineTotal, baselineShare: segmentTotal ? baselineTotal / segmentTotal : 0,
+    lowConfidenceEvents, latestLabel:"末段累计（重计价）"};
+}
+function defaultLabel(bookId){
+  return PRICING.books[bookId].models[PRICING.books[bookId].defaultModel].label;
+}
+function activeModelLabels(events, s){
+  const sc = s || scope();
+  if (sc.book === "ecc") return ["ECC 记录值"];
+  const labels = new Set(events.map(e => priced(e, sc).modelLabel));
+  return Array.from(labels).sort();
 }
 const priceClass = (m) => {
   if (/fable|mythos/.test(m)) return "fable";
@@ -515,15 +587,31 @@ function previousEvents(){
   const span = to - from;
   return filterEvents(new Date(from.getTime() - span), new Date(from.getTime() - 1));
 }
-function agg(list){
-  const a = {cost:0, in:0, out:0, cacheWrite:0, cacheRead:0, snapshots:0, sessions:new Set(), low:0};
+function agg(list, s){
+  const sc = s || scope();
+  const a = {cost:0, in:0, out:0, cacheWrite:0, cacheRead:0, snapshots:0, sessions:new Set(), low:0,
+    tokens:0, nativeTokens:0, fallbackTokens:0, tierFallbackTokens:0, ambiguousTokens:0, peakLow:0};
   for (const e of list){
-    a.cost += e.cost; a.in += e.in; a.out += e.out;
+    const p = priced(e, sc);
+    const t = Math.max(0, e.in || 0) + Math.max(0, e.out || 0) + Math.max(0, e.cacheWrite || 0) + Math.max(0, e.cacheRead || 0);
+    a.cost += p.cost; a.in += e.in; a.out += e.out;
     a.cacheWrite += e.cacheWrite; a.cacheRead += e.cacheRead;
+    a.tokens += t;
+    if (sc.book !== "ecc"){
+      if (p.ambiguous) a.ambiguousTokens += t;
+      else if (p.native){
+        a.nativeTokens += t;
+        if (p.tierFallback) a.tierFallbackTokens += t;
+      } else a.fallbackTokens += t;
+      if (p.peakConfidence === "low") a.peakLow += 1;
+    }
     a.snapshots += 1; a.sessions.add(e.session);
     if (e.tsConfidence === "low") a.low += 1;
   }
   a.cacheHit = a.cacheRead / ((a.in + a.cacheWrite + a.cacheRead) || 1);
+  const confident = a.nativeTokens + a.fallbackTokens;
+  a.nativeCoverage = sc.book === "ecc" ? null : (confident ? a.nativeTokens / confident : null);
+  a.ambiguousShare = sc.book === "ecc" ? null : (a.tokens ? a.ambiguousTokens / a.tokens : null);
   return a;
 }
 const METRICS = {
@@ -536,10 +624,72 @@ const METRICS = {
   snapshots: {label:"快照数", value:a=>a.snapshots, fmt:v=>String(Math.round(v))}
 };
 function metricOf(a){ return (METRICS[state.metric] || METRICS.cost).value(a); }
-function eventMetric(e){
+function eventMetric(e, s){
+  if (state.metric === "cost") return eventCost(e, s);
   if (state.metric === "cacheHit") return e.cacheRead / ((e.in + e.cacheWrite + e.cacheRead) || 1);
   if (state.metric === "snapshots") return 1;
   return e[state.metric] || 0;
+}
+
+/* ---------- pricing ---------- */
+function renderPricing(){
+  const evs = currentEvents();
+  const totals = priceTotals(evs);
+  const buttons = PRICING.BOOK_IDS.map(id => {
+    const a = agg(evs, scope(id, state.ds));
+    let cov = "记录值";
+    if (id !== "ecc") cov = a.nativeCoverage == null ? "原生 —" : "原生 " + pct(a.nativeCoverage);
+    const title = id === "deepseek" ? "DeepSeek 峰谷：" + ({auto:"自动",peak:"全峰",offpeak:"全谷"}[state.ds]) : "";
+    return '<button class="pricebtn" data-book="' + id + '" aria-pressed="' + (state.book === id) + '" title="' + esc(title) + '">' +
+      '<span class="pn">' + esc(PRICING.books[id].label) + '</span>' +
+      '<span class="pv num">' + fmtUSD(totals[id], 2) + '</span>' +
+      '<span class="pc">' + esc(cov) + '</span></button>';
+  }).join("");
+  const dsCtl = state.book === "deepseek"
+    ? '<label class="plabel" for="dsModeSelect">峰谷</label><select id="dsModeSelect">' +
+      '<option value="auto"' + (state.ds === "auto" ? " selected" : "") + '>自动（Stop 时刻）</option>' +
+      '<option value="peak"' + (state.ds === "peak" ? " selected" : "") + '>全峰</option>' +
+      '<option value="offpeak"' + (state.ds === "offpeak" ? " selected" : "") + '>全谷</option></select>'
+    : "";
+  let meta = "";
+  if (state.book === "ecc"){
+    meta = '<b>ECC 原始</b> · costs.jsonl 记录的估算值 · 不重计价';
+  } else {
+    const a = agg(evs, scope());
+    const labels = activeModelLabels(evs);
+    const modelIds = new Set(evs.map(e => priced(e).modelId));
+    const rateModel = modelIds.size === 1 ? Array.from(modelIds)[0] : PRICING.books[state.book].defaultModel;
+    let modelTxt = labels.length > 2 ? labels.slice(0,2).join(" / ") + " 等 " + labels.length + " 个" : (labels.join(" / ") || "无数据");
+    let rateTxt = "";
+    if (labels.length <= 1){
+      if (state.book === "deepseek"){
+        const m = PRICING.books.deepseek.models[rateModel] || PRICING.books.deepseek.models[PRICING.books.deepseek.defaultModel];
+        if (state.ds === "auto"){
+          rateTxt = " · 峰 $" + m.peak.in + " / 谷 $" + m.offPeak.in + " in · 峰 $" + m.peak.out + " / 谷 $" + m.offPeak.out + " out / 1M";
+        } else {
+          const r = state.ds === "peak" ? m.peak : m.offPeak;
+          rateTxt = " · $" + r.in + " in / $" + r.out + " out / 1M";
+        }
+      } else {
+        const rates = PRICING.ratesFor(state.book, rateModel, "peak");
+        if (rates) rateTxt = " · $" + rates.in + " in / $" + rates.out + " out / 1M";
+      }
+    }
+    const cov = a.nativeCoverage == null ? "—" : pct(a.nativeCoverage);
+    const amb = a.ambiguousShare == null ? "—" : pct(a.ambiguousShare);
+    meta = '<b>' + esc(modelTxt) + '</b>' + esc(rateTxt) +
+      ' · 原生覆盖 ' + cov + ' · 层级回退 ' + fmtTokens(a.tierFallbackTokens) +
+      ' · 计价歧义 ' + amb +
+      (a.nativeCoverage === 0 ? '<br><span style="color:var(--warn)">当前筛选没有 ' + esc(PRICING.books[state.book].label) + ' 模型，全部按 ' + esc(defaultLabel(state.book)) + ' 反事实计价。</span>' : "");
+  }
+  $("#pricing").innerHTML =
+    '<span class="plabel">计价</span>' + buttons + dsCtl +
+    '<span class="pmeta">' + meta + '</span>';
+}
+function syncPricing(){
+  $$("#pricing [data-book]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.book === state.book)));
+  const sel = $("#dsModeSelect");
+  if (sel) sel.value = state.ds;
 }
 
 /* ---------- KPI / recon ---------- */
@@ -559,27 +709,35 @@ function renderKpis(){
     deltaTxt = (diff >= 0 ? "+" : "") + (diff / old * 100).toFixed(1) + "%";
     deltaCls = diff >= 0 ? "up" : "down";
   }
-  const allTotal = state.acc === "segments" ? DATA.meta.reconciliation.segmentTotal : DATA.meta.reconciliation.latestTotal;
+  const rec = reconciliation();
+  const allTotal = state.acc === "segments" ? rec.segmentTotal : rec.latestTotal;
+  const allDesc = state.book === "ecc"
+    ? (state.acc === "segments" ? "所有历史段" : "每会话最新快照")
+    : (state.acc === "segments" ? "重计价所有历史段" : "重计价末段累计");
+  const filterLabel = "当前筛选 · " + METRICS[state.metric].label + (state.metric === "cost" && state.acc === "latest" ? "（末段事件和）" : "");
   const cards = [
-    {k:"当前筛选 · " + METRICS[state.metric].label, v:METRICS[state.metric].fmt(cur), d:"上一等长周期 " + deltaTxt, cls:deltaCls},
+    {k:filterLabel, v:METRICS[state.metric].fmt(cur), d:"上一等长周期 " + deltaTxt, cls:deltaCls},
     {k:"会话", v:String(a.sessions.size), d:a.sessions.size ? "平均 " + fmtUSD(a.cost / a.sessions.size, 2) + "/会话" : "无数据"},
     {k:"快照（Stop）", v:String(a.snapshots), d:"低置信度 " + a.low},
     {k:"缓存命中率", v:pct(a.cacheHit), d:"cacheRead / (in+cw+cr)"},
-    {k:"全部时间（该口径）", v:fmtUSD(allTotal, 2), d:state.acc === "segments" ? "所有历史段" : "每会话最新快照"}
+    {k:"全部时间（该口径）", v:fmtUSD(allTotal, 2), d:allDesc}
   ];
   $("#kpis").innerHTML = cards.map(c =>
     '<div class="kpi"><div class="k">' + esc(c.k) + '</div><div class="v num">' + esc(c.v) +
     '</div><div class="d ' + c.cls + '">' + esc(c.d) + '</div></div>').join("");
 }
 function renderRecon(){
-  const r = DATA.meta.reconciliation;
+  const r = reconciliation();
   const c = DATA.meta.counts;
   const diff = Math.abs(r.diff) < 0.0005 ? 0 : r.diff;
+  const bookLabel = PRICING.books[state.book].label;
+  const segLabel = state.book === "ecc" ? "段累计" : "段累计（重计价）";
+  const latestLabel = state.book === "ecc" ? "最新快照" : "末段累计（重计价）";
   const el = $("#recon");
   el.innerHTML =
-    '<span>口径 <b>' + (state.acc === "segments" ? "实际消耗（segments）" : "最新快照（ECC）") + '</b></span>' +
-    '<span>段累计 <b class="num">' + fmtUSD(r.segmentTotal, 2) + '</b></span>' +
-    '<span>最新快照 <b class="num">' + fmtUSD(r.latestTotal, 2) + '</b></span>' +
+    '<span>口径 <b>' + (state.acc === "segments" ? "实际消耗（segments）" : (state.book === "ecc" ? "最新快照（ECC）" : "末段累计（重计价）")) + '</b> · ' + esc(bookLabel) + '</span>' +
+    '<span>' + segLabel + ' <b class="num">' + fmtUSD(r.segmentTotal, 2) + '</b></span>' +
+    '<span>' + latestLabel + ' <b class="num">' + fmtUSD(r.latestTotal, 2) + '</b></span>' +
     '<span class="badge ' + (diff ? "" : "zero") + '">差额 ' + fmtUSD(diff, 2) + ' · ' + c.resets + ' 个会话重置</span>' +
     '<button class="btn ghost" id="accToggle" style="margin-left:auto">切换口径</button>';
   const btn = $("#accToggle");
@@ -634,6 +792,7 @@ function syncControls(){
   $("#dimCtl").classList.toggle("hide", state.view !== "board");
   $("#projectSummary").textContent = state.projects.length ? ("项目：" + state.projects.length + " 个") : "项目：全部";
   $("#modelSummary").textContent = state.models.length ? ("模型：" + state.models.length + " 个") : "模型：全部";
+  syncPricing();
 }
 
 /* ---------- trend ---------- */
@@ -676,8 +835,8 @@ function renderTrend(){
     if (!row) continue;
     row.events.push(e);
     const g = groupKey(e);
-    row.groups.set(g, (row.groups.get(g) || 0) + eventMetric(e));
-    row.total += eventMetric(e);
+    row.groups.set(g, (row.groups.get(g) || 0) + eventMetric(e, scope()));
+    row.total += eventMetric(e, scope());
   }
   const rows = bucketList.map(b => map.get(b.key));
   const totals = new Map();
@@ -727,12 +886,12 @@ function renderTrend(){
   }
   $("#legend").innerHTML = legend.join("");
 
-  const totalAgg = agg(events);
+  const totalAgg = agg(events, scope());
   const showCostCol = state.metric !== "cost";
   const costHead = showCostCol ? '<th class="r">花费</th>' : "";
   const head = '<tr><th>桶</th><th class="r">' + esc(METRICS[state.metric].label) + '</th>' + costHead + '<th class="r">快照</th><th class="r">会话</th><th class="r">缓存命中</th></tr>';
   const body = rows.map(r => {
-    const a = agg(r.events);
+    const a = agg(r.events, scope());
     const costCell = showCostCol ? '<td class="r num">' + fmtUSD(a.cost) + '</td>' : "";
     return '<tr><td>' + esc(r.bucket.label) + '</td><td class="r num">' + esc(METRICS[state.metric].fmt(r.total)) +
       '</td>' + costCell + '<td class="r num">' + a.snapshots +
@@ -775,7 +934,7 @@ function renderBoard(){
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(e);
     }
-    const ranked = Array.from(groups.entries()).sort((a,b)=>metricOf(agg(b[1]))-metricOf(agg(a[1])));
+    const ranked = Array.from(groups.entries()).sort((a,b)=>metricOf(agg(b[1], scope()))-metricOf(agg(a[1], scope())));
     const top = ranked.slice(0, 12);
     const rest = ranked.slice(12);
     top.forEach(([k,v])=>ensure("g:"+k,k).events.push(...v));
@@ -784,17 +943,17 @@ function renderBoard(){
 
   const cols = Array.from(columns.values());
   cols.forEach(col => {
-    col.agg = agg(col.events);
+    col.agg = agg(col.events, scope());
     const bySession = new Map();
     for (const e of col.events){
       if (!bySession.has(e.session)) bySession.set(e.session, []);
       bySession.get(e.session).push(e);
     }
-    col.cards = Array.from(bySession.entries()).map(([sid, evs]) => ({sid, a:agg(evs)}))
+    col.cards = Array.from(bySession.entries()).map(([sid, evs]) => ({sid, a:agg(evs, scope())}))
       .sort((a,b)=>metricOf(b.a)-metricOf(a.a));
   });
   if (state.dim !== "time") cols.sort((a,b)=>metricOf(b.agg)-metricOf(a.agg));
-  const total = agg(events);
+  const total = agg(events, scope());
   $("#boardTitle").textContent = "看板 · " + (state.dim === "time" ? "时间桶" : state.dim === "model" ? "模型" : "项目");
   $("#boardHint").textContent = cols.length + " 列 · " + total.sessions.size + " 个会话 · " + METRICS[state.metric].label + " " + METRICS[state.metric].fmt(metricOf(total));
   $("#board").innerHTML = cols.map(col => {
@@ -812,7 +971,13 @@ function cardHtml(c){
   const badges = [];
   if (c.a.low) badges.push('<span class="badge2 warn">低置信度 ' + c.a.low + '</span>');
   if (s.projectInferred) badges.push('<span class="badge2">项目名推断</span>');
-  if ((s.modelsDisplay||[]).some(m => priceClass(m) === "fallback-sonnet")) badges.push('<span class="badge2 warn">价格按 Sonnet 估</span>');
+  if (state.book === "ecc"){
+    if ((s.modelsDisplay||[]).some(m => priceClass(m) === "fallback-sonnet")) badges.push('<span class="badge2 warn">价格按 Sonnet 估</span>');
+  } else {
+    if (c.a.fallbackTokens) badges.push('<span class="badge2 warn">' + (c.a.nativeTokens ? "部分" : "") + '按 ' + esc(defaultLabel(state.book)) + ' 计价</span>');
+    if (c.a.ambiguousTokens) badges.push('<span class="badge2 warn">计价歧义</span>');
+    if (c.a.peakLow) badges.push('<span class="badge2 warn">峰谷低置信 ' + c.a.peakLow + '</span>');
+  }
   if ((s.segments||[]).length > 1) badges.push('<span class="badge2 bad">重置 ' + (s.segments.length-1) + '</span>');
   return '<div class="tcard" data-session="' + esc(c.sid) + '" tabindex="0" role="button">' +
     '<div class="t">' + esc(s.title || c.sid.slice(0,8)) + '</div>' +
@@ -833,9 +998,9 @@ function renderRanking(events){
   }
   const rows = Array.from(bySession.entries()).map(([sid, evs]) => {
     const s = SESSION.get(sid) || {id:sid, title:sid.slice(0,8), project:"未知", modelsDisplay:[], segments:[]};
-    return {sid, s, a:agg(evs)};
+    return {sid, s, a:agg(evs, scope())};
   }).sort((x,y)=>metricOf(y.a)-metricOf(x.a));
-  const total = agg(events);
+  const total = agg(events, scope());
   $("#rankSummary").innerHTML =
     '<span>会话 <b>' + rows.length + '</b></span><span>花费 <b>' + fmtUSD(total.cost,2) + '</b></span>' +
     '<span>快照 <b>' + total.snapshots + '</b></span><span>缓存命中 <b>' + pct(total.cacheHit) + '</b></span>' +
@@ -855,22 +1020,32 @@ function renderRanking(events){
 
 /* ---------- drawer ---------- */
 function openDrawer(sid){
+  OPEN_SESSION = sid;
   const s = SESSION.get(sid) || {id:sid, title:sid.slice(0,8), project:"未知", projectPath:"", modelsDisplay:[], segments:[], transcriptPath:"", transcriptExists:false};
   const evs = DATA.events.filter(e => e.session === sid);
-  const a = agg(evs);
+  const a = agg(evs, scope());
+  const segTotals = new Map();
+  for (const e of evs) segTotals.set(e.segment, (segTotals.get(e.segment) || 0) + eventCost(e));
   const segRows = (s.segments||[]).map(seg => '<tr><td class="num">' + seg.id + '</td><td>' + esc(seg.kind) + '</td><td>' + esc(fmtLocal(seg.startTs)) +
-    '</td><td>' + esc(fmtLocal(seg.endTs)) + '</td><td class="r num">' + fmtUSD(seg.total) + '</td></tr>').join("");
-  const maxEv = Math.max(1e-9, ...evs.map(e=>e.cost));
-  const timeline = evs.map(e => '<div class="tbar' + (e.tsConfidence==="low"?" low":"") + '" title="' + esc(fmtLocal(e.ts) + " · " + fmtUSD(e.cost,4) + " · " + e.kind) + '" style="height:' + Math.max(2, e.cost/maxEv*100) + '%"></div>').join("");
-  const eventRows = evs.slice().reverse().slice(0,300).map(e => '<tr><td>' + esc(fmtLocal(e.ts)) + '</td><td>' + esc(e.kind) +
-    '</td><td>' + esc(e.modelDisplay) + '</td><td class="r num">' + fmtTokens(e.in) + '</td><td class="r num">' + fmtTokens(e.out) +
-    '</td><td class="r num">' + fmtTokens(e.cacheRead) + '</td><td class="r num">' + fmtUSD(e.cost,4) + '</td></tr>').join("");
+    '</td><td>' + esc(fmtLocal(seg.endTs)) + '</td><td class="r num">' + fmtUSD(segTotals.get(seg.id) || 0) + '</td></tr>').join("");
+  const maxEv = Math.max(1e-9, ...evs.map(e=>eventCost(e)));
+  const timeline = evs.map(e => '<div class="tbar' + (e.tsConfidence==="low"?" low":"") + '" title="' + esc(fmtLocal(e.ts) + " · " + fmtUSD(eventCost(e),4) + " · " + e.kind) + '" style="height:' + Math.max(2, eventCost(e)/maxEv*100) + '%"></div>').join("");
+  const eventRows = evs.slice().reverse().slice(0,300).map(e => { const p = priced(e); return '<tr><td>' + esc(fmtLocal(e.ts)) + '</td><td>' + esc(e.kind) +
+    '</td><td>' + esc(e.modelDisplay) + '</td><td>' + esc(p.modelLabel) + (p.ambiguous ? ' <span class="badge2 warn">歧义</span>' : '') +
+    '</td><td class="r num">' + fmtTokens(e.in) + '</td><td class="r num">' + fmtTokens(e.out) +
+    '</td><td class="r num">' + fmtTokens(e.cacheRead) + '</td><td class="r num">' + fmtUSD(p.cost,4) + '</td></tr>'; }).join("");
   const dq = [];
   if (s.projectInferred) dq.push("项目名由 transcript 目录推断");
   if (s.transcriptExists === false) dq.push("transcript 已缺失");
   if ((s.segments||[]).length > 1) dq.push("会话存在累计重置");
-  const fallback = (s.modelsDisplay||[]).filter(m=>priceClass(m)==="fallback-sonnet");
-  if (fallback.length) dq.push("价格可能按 Sonnet 估算：" + fallback.join(", "));
+  if (state.book === "ecc"){
+    const fallback = (s.modelsDisplay||[]).filter(m=>priceClass(m)==="fallback-sonnet");
+    if (fallback.length) dq.push("价格可能按 Sonnet 估算：" + fallback.join(", "));
+  } else {
+    if (a.ambiguousTokens) dq.push("计价歧义：" + pct(a.ambiguousShare || 0) + " token 来自跨模型或 baseline 事件");
+    if (a.fallbackTokens) dq.push("非原生模型按 " + defaultLabel(state.book) + " 计价");
+    if (state.book === "deepseek") dq.push("峰谷：" + ({auto:"按 Stop 时刻（非官方逐请求计算）",peak:"全峰",offpeak:"全谷"}[state.ds]));
+  }
   $("#drawer").innerHTML =
     '<div class="drawer-head"><div style="min-width:0"><h2>' + esc(s.title) + '</h2>' +
     '<div class="sub">' + esc(s.project) + (s.projectPath ? ' · ' + esc(s.projectPath) : '') + '</div></div>' +
@@ -887,13 +1062,14 @@ function openDrawer(sid){
     (dq.length ? '<div class="notice" style="margin:10px 0">' + esc(dq.join("；")) + '</div>' : '') +
     '<h3>每轮花费</h3><div class="timeline">' + timeline + '</div>' +
     '<h3>Segment</h3><div class="table-wrap" style="max-height:180px"><table class="seg-table"><thead><tr><th>#</th><th>类型</th><th>开始</th><th>结束</th><th class="r">累计</th></tr></thead><tbody>' + (segRows || '<tr><td colspan="5" class="empty">—</td></tr>') + '</tbody></table></div>' +
-    '<h3>快照明细（最近 300）</h3><div class="events-table"><table><thead><tr><th>时间</th><th>类型</th><th>模型</th><th class="r">入</th><th class="r">出</th><th class="r">缓存读</th><th class="r">花费</th></tr></thead><tbody>' + (eventRows || '<tr><td colspan="7" class="empty">—</td></tr>') + '</tbody></table></div>';
+    '<h3>快照明细（最近 300）</h3><div class="events-table"><table><thead><tr><th>时间</th><th>类型</th><th>模型</th><th>计价</th><th class="r">入</th><th class="r">出</th><th class="r">缓存读</th><th class="r">花费</th></tr></thead><tbody>' + (eventRows || '<tr><td colspan="8" class="empty">—</td></tr>') + '</tbody></table></div>';
   $("#drawer").hidden = false;
   $("#backdrop").hidden = false;
   $("#closeDrawer").addEventListener("click", closeDrawer);
   $$("#drawer [data-copy]").forEach(b => b.addEventListener("click", () => copyText(b.dataset.copy)));
 }
 function closeDrawer(){
+  OPEN_SESSION = null;
   $("#drawer").hidden = true;
   $("#backdrop").hidden = true;
   $("#drawer").innerHTML = "";
@@ -919,8 +1095,15 @@ function fmtLocal(ts){
 
 /* ---------- data quality ---------- */
 function renderDq(){
-  const m = DATA.meta, c = m.counts, r = m.reconciliation;
+  const m = DATA.meta, c = m.counts, r = reconciliation();
   const fallback = MODELS.filter(x => priceClass(x) === "fallback-sonnet");
+  const aAll = agg(DATA.events, scope());
+  const bookLabel = PRICING.books[state.book].label;
+  const labels = activeModelLabels(DATA.events);
+  const modelTxt = labels.length > 3 ? labels.slice(0,3).join(", ") + " 等 " + labels.length + " 个" : labels.join(", ");
+  const cov = state.book === "ecc" ? "—" : (aAll.nativeCoverage == null ? "—" : pct(aAll.nativeCoverage));
+  const amb = state.book === "ecc" ? "—" : (aAll.ambiguousShare == null ? "—" : pct(aAll.ambiguousShare));
+  const segLabel = state.book === "ecc" ? "段累计 / 最新快照" : "段累计 / 末段累计（重计价）";
   const item = (k,v) => '<div class="dq-item"><span>' + esc(k) + '</span><span class="num">' + esc(v) + '</span></div>';
   $("#dqBody").innerHTML =
     item("数据源", m.source.path || "—") +
@@ -937,13 +1120,24 @@ function renderDq(){
     item("推断项目名", c.inferredProjects) +
     item("缺失 transcript", c.missingTranscripts) +
     item("低置信度事件", r.lowConfidenceEvents) +
+    item("计价手册", bookLabel + " · " + (modelTxt || "—")) +
+    item("价格版本", PRICING.meta.updatedAt) +
+    item("峰谷窗口", "UTC 01:00–04:00 / 06:00–10:00，周一至周五；节假日未建模") +
+    item("原生覆盖 / 计价歧义", cov + " / " + amb) +
+    item("层级回退 token", state.book === "ecc" ? "—" : fmtTokens(aAll.tierFallbackTokens)) +
     item("首行 baseline", fmtUSD(r.baselineTotal, 2) + "（" + pct(r.baselineShare) + "）") +
-    item("段累计 / 最新快照", fmtUSD(r.segmentTotal, 2) + " / " + fmtUSD(r.latestTotal, 2)) +
+    item(segLabel, fmtUSD(r.segmentTotal, 2) + " / " + fmtUSD(r.latestTotal, 2)) +
     item("差额", fmtUSD(r.diff, 2)) +
     '<div class="dq-note">' +
-      '<b>口径：</b>segments = 所有 segment 的 baseline + 正向增量；latest = 每会话最后一个 segment 的累计（与 ECC 报告一致）。<br>' +
+      '<b>口径：</b>segments = 所有 segment 的 baseline + 正向增量；latest = 每会话最后一个 segment 的事件和。ECC 模式的全时间结果使用记录快照，筛选后的 latest 可能与记录值不同（anomaly/仅费用下降时）。<br>' +
+      '<b>重计价：</b>provider 模式仍按事件 token 重新计价；末段累计不是 ECC 最新快照。跨模型事件和 baseline 使用 Stop 行模型整段计价，标为计价歧义，并从原生覆盖中排除。<br>' +
+      '<b>峰谷：</b>DeepSeek 全峰/全谷是权威上下界；自动按 Stop 时刻归属，baseline 和跨峰谷边界的区间标为低置信度，未扣中国法定节假日。<br>' +
       '<b>低置信度：</b>首行/重置 baseline，以及间隔超过 12 小时的增量，时间归因不可靠。<br>' +
-      '<b>价格：</b>' + (fallback.length ? '以下模型 ECC 会回落到 Sonnet 价目表：' + esc(fallback.join(", ")) : '未发现未知价格模型') + '。所有金额为估算，不是账单。<br>' +
+      '<b>价格：</b>' + (state.book === "ecc"
+        ? (fallback.length ? '以下模型 ECC 会回落到 Sonnet 价目表：' + esc(fallback.join(", ")) : '未发现未知价格模型')
+        : '按 ' + esc(bookLabel) + ' 价目表重算；未匹配模型按 ' + esc(defaultLabel(state.book)) + ' 回退') +
+        '。未建模上下文长度分档、缓存 TTL、批处理/快速模式折扣。所有金额为估算，不是账单。<br>' +
+      '<b>来源：</b>' + esc(PRICING.meta.sources.map(x => x.label + " " + x.url).join(" · ")) + '<br>' +
       '<b>覆盖：</b>“全部”只表示当前文件的范围，不代表 Claude Code 的完整历史。<br>' +
       '<b>隐私：</b>生成后的 HTML 含本机路径和会话标题，分享前请自行检查。' +
     '</div>';
@@ -958,6 +1152,7 @@ function showTrend(){ $("#boardView").hidden = true; $("#rankingView").hidden = 
 function renderAll(){
   $("#asof").textContent = "数据截至 " + fmtLocal(DATA.meta.coverage.lastTs) + " · 生成 " + fmtLocal(DATA.meta.generatedAt) +
     " · " + (state.tz === "utc" ? "UTC" : "本地时区") + " · " + DATA.meta.counts.sessions + " 会话";
+  renderPricing();
   renderKpis();
   renderRecon();
   syncControls();
@@ -965,6 +1160,10 @@ function renderAll(){
   else {
     if (state.dim === "session") renderRanking(currentEvents());
     else { showBoard(); renderBoard(); }
+  }
+  if (OPEN_SESSION){
+    if (SESSION.has(OPEN_SESSION)) openDrawer(OPEN_SESSION);
+    else closeDrawer();
   }
   renderDq();
 }
@@ -984,10 +1183,12 @@ function parseJsonl(text){
     try { d = JSON.parse(s); } catch(e){ skipped++; continue; }
     if (!d || typeof d !== "object"){ skipped++; continue; }
     const ts = d.timestamp, sid = d.session_id;
-    if (typeof ts !== "string" || !ts || typeof sid !== "string" || !sid){ skipped++; continue; }
+    if (typeof ts !== "string" || !ts || isNaN(Date.parse(ts)) || typeof sid !== "string" || !sid){ skipped++; continue; }
     const vals = {}; let bad = false;
     for (const k of ["input_tokens","output_tokens","cache_write_tokens","cache_read_tokens","estimated_cost_usd"]){
-      const v = d[k] == null ? 0 : Number(d[k]);
+      const raw = d[k] == null ? 0 : d[k];
+      if (typeof raw === "boolean" || (typeof raw === "string" && raw.trim() === "")){ bad = true; break; }
+      const v = Number(raw);
       if (!isFinite(v) || v < 0){ bad = true; break; }
       vals[k] = v;
     }
@@ -1104,18 +1305,21 @@ async function handleFile(file){
       "）。这可能是子集文件，载入后历史会消失。仍要继续吗？");
     if (!ok) return;
   }
-  DATA = next; reindex(); renderControlMenus(); syncControls(); renderAll();
+  DATA = next; resetPriceMemo(); reindex(); renderControlMenus(); syncControls(); renderAll();
   toast("已载入 " + file.name + " · " + next.sessions.length + " 会话");
 }
 
 /* ---------- CSV ---------- */
 function exportCsv(){
   const events = currentEvents();
-  const lines = ["timestamp,session_id,project,title,model,kind,confidence,input_tokens,output_tokens,cache_write_tokens,cache_read_tokens,estimated_cost_usd"];
+  const lines = ["timestamp,session_id,project,title,model,kind,confidence,input_tokens,output_tokens,cache_write_tokens,cache_read_tokens,ecc_cost_usd,cost_usd,pricing_book,pricing_mode,priced_as,pricing_ambiguous,peak,peak_confidence"];
   for (const e of events){
     const s = SESSION.get(e.session) || {};
+    const p = priced(e);
+    const cost = Math.round(p.cost * 1e9) / 1e9;
     lines.push([e.ts, e.session, s.project || "", s.title || "", e.modelDisplay, e.kind, e.tsConfidence,
-      e.in, e.out, e.cacheWrite, e.cacheRead, e.cost].map(v => {
+      e.in, e.out, e.cacheWrite, e.cacheRead, e.cost, cost, state.book, state.book === "deepseek" ? state.ds : "",
+      p.modelLabel, p.ambiguous ? "1" : "0", p.peak == null ? "" : (p.peak ? "peak" : "offpeak"), p.peakConfidence || ""].map(v => {
         const x = String(v == null ? "" : v);
         return /[",\n]/.test(x) ? '"' + x.replace(/"/g,'""') + '"' : x;
       }).join(","));
@@ -1155,6 +1359,14 @@ function wire(){
   $("#viewGroup").addEventListener("click", e => {
     const b = e.target.closest("[data-view]"); if (!b) return;
     state.view = b.dataset.view; saveState(); renderAll();
+  });
+  $("#pricing").addEventListener("click", e => {
+    const b = e.target.closest("[data-book]"); if (!b) return;
+    state.book = b.dataset.book; saveState(); renderAll();
+  });
+  $("#pricing").addEventListener("change", e => {
+    if (e.target.id !== "dsModeSelect") return;
+    state.ds = e.target.value; saveState(); renderAll();
   });
   $("#granSelect").addEventListener("change", e => { state.gran = e.target.value; saveState(); renderAll(); });
   $("#dimSelect").addEventListener("change", e => { state.dim = e.target.value; saveState(); renderAll(); });

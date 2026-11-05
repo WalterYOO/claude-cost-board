@@ -34,6 +34,27 @@ make open     # 构建并打开
 
 切换按钮在顶部 reconciliation 条右侧。所有总额都是运行时计算的，没有写死。
 
+## 三套 provider 价目表
+
+顶部「计价」条可以在四者之间切换，所有金额、图表、卡片、排行、详情和 CSV 会一起重算：
+
+| 计价 | 说明 |
+|---|---|
+| ECC 原始 | `costs.jsonl` 里记录的 `estimated_cost_usd`，不重计价 |
+| Claude | 按 Claude 当前价目表；默认 Sonnet 5.5 |
+| Codex | 按 OpenAI/Codex 当前价目表；默认 GPT-5.3 Codex |
+| DeepSeek | 按 V4.1 Flash / V4 Pro 峰谷价；支持自动 / 全峰 / 全谷 |
+
+重要语义：
+
+- 价格只按事件里的四类 token 重算，不改变会话、筛选和口径。
+- 模型不属于该 provider 时，按该价目表的默认模型反事实计价；界面显示原生覆盖率和回退提示。当前数据没有 Claude/Codex 模型，所以这两版是 100% 回退计价。
+- 跨模型事件和 baseline 无法拆分 token 来源，按 Stop 行模型整段计价，并标为「计价歧义」，不计入原生覆盖率。
+- DeepSeek 自动峰谷按事件 Stop 时刻归属（UTC 周一至周五 01:00–04:00、06:00–10:00），不是官方逐请求计算，也未扣中国法定节假日；全峰/全谷是权威上下界。
+- 未建模上下文长度分档、缓存 TTL、批处理折扣和其他快速/优先模式（`gpt-5.3-codex-fast` 已单独建模）。价格是估算，不是账单。
+
+价目表、来源和版本在 `pricing.js`，构建时内嵌进 HTML。
+
 ## 怎么用
 
 - **趋势**：时间粒度可选自动 / 小时 / 天 / 周 / 月 / 季度 / 年；按项目或模型堆叠。
@@ -65,14 +86,25 @@ make open     # 构建并打开
 | 文件 | 作用 |
 |---|---|
 | `build.py` | 解析、差分、生成 HTML（仅标准库） |
+| `pricing.js` | 三套 provider 价目表与重计价逻辑（浏览器/Node 共用） |
 | `template.html` | 单文件页面模板，含内联 CSS/JS |
 | `cost-board.html` | 生成物，可直接打开 |
 | `data.snapshot.json` | 生成的数据快照，便于排查 |
-| `tests/test_build.py` | 边界用例（重置、重复、异常、跨模型、XSS） |
+| `tests/test_build.py` | 构建与数据边界用例（重置、重复、异常、跨模型、XSS、模板注入） |
+| `tests/test_pricing.js` | 价目表、模型匹配、峰谷边界、歧义与覆盖率用例 |
 | `DESIGN.md` / `REVIEW.md` | 设计稿与 codex 审核意见 |
 
 ## 测试
 
 ```
-python3 -m unittest discover -s tests -v
+make test
 ```
+
+等价于：
+
+```
+python3 -m unittest discover -s tests -v
+node tests/test_pricing.js
+```
+
+Node 仅用于测试；`build.py` 仍然只依赖 Python 标准库。

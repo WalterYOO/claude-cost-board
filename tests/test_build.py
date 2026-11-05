@@ -117,9 +117,41 @@ class BuildTests(unittest.TestCase):
 
     def test_render_escapes_script_close(self):
         data = {"meta": {}, "sessions": [{"title": "</script><b>x</b>"}], "events": []}
-        html = build.render("<script>__COST_DATA_JSON__</script>", data)
+        template = "<script>__PRICING_JS__</script><script>__COST_DATA_JSON__</script>"
+        html = build.render(template, data, "globalThis.CostPricing={};")
         self.assertNotIn("</script><b>x</b>", html)
         self.assertIn("<\\/script>", html)
+        self.assertNotIn("__PRICING_JS__", html)
+        self.assertIn("globalThis.CostPricing={};", html)
+
+    def test_render_requires_both_placeholders(self):
+        with self.assertRaises(SystemExit):
+            build.render("<script>__COST_DATA_JSON__</script>", {}, "")
+        with self.assertRaises(SystemExit):
+            build.render("<script>__PRICING_JS__</script>", {}, "")
+        with self.assertRaises(SystemExit):
+            build.render("__PRICING_JS__ __PRICING_JS__ __COST_DATA_JSON__", {}, "")
+        with self.assertRaises(SystemExit):
+            build.render("__PRICING_JS__ __COST_DATA_JSON__ __COST_DATA_JSON__", {}, "")
+
+    def test_render_injects_real_pricing_module(self):
+        template = (build.ROOT / "template.html").read_text(encoding="utf-8")
+        pricing = (build.ROOT / "pricing.js").read_text(encoding="utf-8")
+        html = build.render(template, {"meta": {}, "sessions": [], "events": []}, pricing)
+        self.assertNotIn("__PRICING_JS__", html)
+        self.assertNotIn("__COST_DATA_JSON__", html)
+        self.assertIn("CostPricing", html)
+        self.assertIn('"events":[]', html)
+
+    def test_events_have_no_pricing_fields(self):
+        data = build.build([row()], {})
+        self.assertNotIn("prices", data["events"][0])
+        self.assertNotIn("priceNative", data["events"][0])
+
+    def test_render_rejects_script_close_in_pricing(self):
+        template = "<script>__PRICING_JS__</script><script>__COST_DATA_JSON__</script>"
+        with self.assertRaises(SystemExit):
+            build.render(template, {}, "var x = '</script>';")
 
 
 if __name__ == "__main__":

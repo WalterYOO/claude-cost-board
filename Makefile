@@ -13,6 +13,7 @@ open: build
 
 test:
 	$(PYTHON) -m unittest discover -s tests -v
+	node tests/test_pricing.js
 
 clean:
 	rm -f cost-board.html data.snapshot.json
